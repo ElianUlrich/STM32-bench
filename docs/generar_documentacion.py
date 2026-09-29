@@ -341,8 +341,8 @@ ESTADO_PASOS = [
     (["2 · Reparar", "apt"], "ok"),
     (["3 · Agrandar", "partición"], "ok"),
     (["4 · Copiar", "el código"], "ok"),
-    (["5 · Python 3.9", "+ dfu-util 0.11"], "curso"),
-    (["6 · Compilar", "OpenOCD (ST)"], "pendiente"),
+    (["5 · Python 3.9", "+ dfu-util 0.11"], "ok"),
+    (["6 · Compilar", "OpenOCD (ST)"], "curso"),
     (["7 · install.sh", "servicio + udev"], "pendiente"),
     (["8 · Tailscale", "acceso remoto"], "ok"),
     (["9 · Prueba con", "Nucleo / ST-Link"], "pendiente"),
@@ -682,7 +682,7 @@ scp $env:USERPROFILE\\Desktop\\stm32-bench.tgz ubuntu@192.168.0.27:~
 # En la placa
 mkdir -p ~/stm32-bench && tar -xzf ~/stm32-bench.tgz -C ~/stm32-bench && cd ~/stm32-bench
 """),
-          P("8.6 Preparación del sistema (en curso)", "h2"),
+          P("8.6 Preparación del sistema (completada)", "h2"),
           P("Se agregó el script " + c("scripts/prepare_ubuntu1604.sh") + ", que se ejecuta dentro de tmux "
             "(si se corta el SSH, el trabajo sigue; se retoma con " + c("tmux attach -t prep") + "):"),
           *vinetas([
@@ -696,6 +696,11 @@ mkdir -p ~/stm32-bench && tar -xzf ~/stm32-bench.tgz -C ~/stm32-bench && cd ~/st
 tmux new -s prep
 sudo bash scripts/prepare_ubuntu1604.sh
 """),
+          P("<b>Resultado:</b> terminó en unos 72 minutos (20:02 → 21:14, hora de la placa). Quedaron "
+            "Python 3.9.25 con OpenSSL 1.0.2g (todos los módulos necesarios cargan) y dfu-util 0.11. Durante la "
+            "compilación sólo aparecieron advertencias del compilador (variables sin usar, strict-aliasing), "
+            "sin errores; las advertencias de pip por ejecutarse como root son esperables porque la app usa su "
+            "propio entorno virtual."),
           P("8.7 Tailscale (hecho en paralelo a la compilación)", "h2"),
           P("Desde otra sesión SSH, mientras compilaba Python. La imagen no traía " + c("curl") + " (se agregó al "
             "script de preparación). El repositorio de Tailscale todavía publica paquetes para Ubuntu 16.04 "
