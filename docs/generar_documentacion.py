@@ -344,7 +344,7 @@ ESTADO_PASOS = [
     (["5 · Python 3.9", "+ dfu-util 0.11"], "curso"),
     (["6 · Compilar", "OpenOCD (ST)"], "pendiente"),
     (["7 · install.sh", "servicio + udev"], "pendiente"),
-    (["8 · Tailscale", "acceso remoto"], "pendiente"),
+    (["8 · Tailscale", "acceso remoto"], "ok"),
     (["9 · Prueba con", "Nucleo / ST-Link"], "pendiente"),
     (["10 · Verificación", "en hardware"], "pendiente"),
 ]
@@ -696,6 +696,19 @@ mkdir -p ~/stm32-bench && tar -xzf ~/stm32-bench.tgz -C ~/stm32-bench && cd ~/st
 tmux new -s prep
 sudo bash scripts/prepare_ubuntu1604.sh
 """),
+          P("8.7 Tailscale (hecho en paralelo a la compilación)", "h2"),
+          P("Desde otra sesión SSH, mientras compilaba Python. La imagen no traía " + c("curl") + " (se agregó al "
+            "script de preparación). El repositorio de Tailscale todavía publica paquetes para Ubuntu 16.04 "
+            "armhf (versión 1.102.4)."),
+          bloque_codigo("""
+sudo apt install -y curl
+curl -fsSL https://tailscale.com/install.sh | sh
+sudo tailscale up --hostname=banco-stm32     # se autoriza abriendo el enlace en la PC
+"""),
+          P("En la consola de Tailscale (Machines → banco-stm32 → ⋯ → Disable key expiry) se desactivó el "
+            "vencimiento de la clave, para que la placa no quede fuera de la red. La placa obtuvo la IP "
+            "<b>100.99.235.81</b> y se verificó el acceso remoto desde la PC con " + c("ssh ubuntu@100.99.235.81") +
+            ". Desde ahí se usa esa IP (o el nombre banco-stm32) en lugar de la IP de la red local."),
           P("Otros ajustes hechos para 16.04: " + c("install.sh") + " detecta /opt/python3.9, instala "
             "pydantic-core sólo como paquete precompilado (se verificó que existe para armv7 y Python 3.9 hasta "
             "la versión 2.46.5) y ya no usa piwheels; " + c("build_openocd.sh") + " clona sólo la versión "
@@ -709,8 +722,6 @@ sudo bash scripts/prepare_ubuntu1604.sh
                  ["Compilar OpenOCD (fork de ST)", "sudo bash scripts/build_openocd.sh", "45–90 min"],
                  ["Instalar la app", "sudo bash scripts/install.sh (pide usuario y contraseña de la web)",
                   "10–20 min"],
-                 ["Tailscale", "curl -fsSL https://tailscale.com/install.sh | sh; "
-                               "sudo tailscale up --hostname=banco-stm32", "5 min"],
                  ["Primera prueba", "Nucleo por USB del ST-Link; lsusb | grep 0483; flashear desde la web",
                   "—"],
                  ["GDB remoto", "arm-none-eabi-gdb → target extended-remote &lt;IP&gt;:3333", "—"]],
@@ -756,7 +767,7 @@ tests/               156 tests (pytest)
 """),
           KeepTogether([P("Anexo B. Comandos útiles", "h1"),
           bloque_codigo("""
-ssh ubuntu@192.168.0.27              # entrar a la placa desde la PC
+ssh ubuntu@100.99.235.81             # entrar a la placa por Tailscale (o ubuntu@banco-stm32)
 tmux attach -t prep                  # volver a una sesión de tmux
 systemctl status stm32-bench         # estado del servicio
 journalctl -u stm32-bench -f         # log del servicio
