@@ -44,7 +44,7 @@ log "Instalando dependencias de compilación (apt)..."
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y --no-install-recommends \
-    build-essential pkg-config wget ca-certificates xz-utils \
+    build-essential pkg-config wget curl ca-certificates xz-utils \
     libssl-dev zlib1g-dev libbz2-dev libreadline-dev libsqlite3-dev \
     libffi-dev liblzma-dev uuid-dev libgdbm-dev libncurses5-dev \
     libusb-1.0-0-dev autoconf automake libtool
