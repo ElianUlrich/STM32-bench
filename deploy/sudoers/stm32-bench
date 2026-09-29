@@ -1,0 +1,5 @@
+# /etc/sudoers.d/stm32-bench - generado por install.sh (validado con visudo -c).
+# Permite al usuario del servicio SOLO apagar y reiniciar, sin password.
+# El "" final significa "sin argumentos": sin el, sudo aceptaria cualquier
+# argumento (por ejemplo "reboot --force").
+@SERVICE_USER@ ALL=(root) NOPASSWD: @POWEROFF@ "", @REBOOT@ ""

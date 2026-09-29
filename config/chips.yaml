@@ -1,0 +1,126 @@
+# Catálogo de chips del banco.
+#
+# Agregar un chip = agregar una entrada. Campos:
+#   id              identificador único [a-z0-9_-]
+#   name, family    texto que se muestra en la interfaz
+#   flash.base      dirección base de la flash interna
+#   flash.size_kb   tamaño de la flash (se usa para validar direcciones y .bin)
+#   flash.sector_kb opcional, informativo
+#   default_method  swd | dfu (debe estar en "methods")
+#   methods.swd     parámetros para OpenOCD:
+#       target_cfg         archivo de target relativo a los scripts de OpenOCD
+#       interface          id de config/bench.yaml -> interfaces (opcional)
+#       adapter_speed_khz  velocidad SWD
+#       flash_banks        bancos de OpenOCD a borrar en "borrar flash completa"
+#       tcl_vars           variables que se definen antes del target (p. ej. DUAL_BANK)
+#       erase_cmds         opcional: comandos Tcl que reemplazan el borrado genérico
+#   methods.dfu     parámetros para dfu-util (bootloader USB de ST):
+#       vid_pid            por defecto 0483:df11
+#       alt                "alternate setting" de la flash interna (normalmente 0)
+#       address            dirección de carga (por defecto flash.base)
+#
+# Los chips sin USB (o cuyo bootloader no hace DFU) solo declaran "swd".
+
+chips:
+  - id: stm32h503cb
+    name: STM32H503CBT6
+    family: H5 (Cortex-M33)
+    flash: { base: 0x08000000, size_kb: 128, sector_kb: 8 }
+    default_method: swd
+    methods:
+      swd:
+        target_cfg: target/stm32h5x.cfg
+        # La CPU del H5 está en el AP 1: el modo HLA no sirve, hace falta dapdirect.
+        interface: stlink-dap
+        adapter_speed_khz: 4000
+        flash_banks: [0]
+      dfu:
+        vid_pid: "0483:df11"
+        alt: 0
+
+  - id: stm32h723vg
+    name: STM32H723VGT6
+    family: H7 (Cortex-M7)
+    flash: { base: 0x08000000, size_kb: 1024, sector_kb: 128 }
+    default_method: swd
+    methods:
+      swd:
+        target_cfg: target/stm32h7x.cfg
+        interface: stlink-dap
+        adapter_speed_khz: 4000
+        flash_banks: [0]
+      dfu:
+        vid_pid: "0483:df11"
+        alt: 0
+
+  # --- Ejemplos de otras familias comunes ---
+
+  - id: stm32f103c8
+    name: STM32F103C8 (Blue Pill)
+    family: F1 (Cortex-M3)
+    flash: { base: 0x08000000, size_kb: 64, sector_kb: 1 }
+    default_method: swd
+    methods:
+      swd:
+        target_cfg: target/stm32f1x.cfg
+        interface: stlink          # ST-Link V2 clones: solo HLA
+        adapter_speed_khz: 1000
+        flash_banks: [0]
+      # El bootloader del F103 no tiene USB DFU (solo USART).
+
+  - id: stm32f411ce
+    name: STM32F411CE (Black Pill)
+    family: F4 (Cortex-M4)
+    flash: { base: 0x08000000, size_kb: 512 }
+    default_method: swd
+    methods:
+      swd:
+        target_cfg: target/stm32f4x.cfg
+        interface: stlink
+        adapter_speed_khz: 2000
+        flash_banks: [0]
+      dfu:
+        vid_pid: "0483:df11"
+        alt: 0
+
+  - id: stm32l476rg
+    name: STM32L476RG (Nucleo-L476RG)
+    family: L4 (Cortex-M4)
+    flash: { base: 0x08000000, size_kb: 1024, sector_kb: 2 }
+    default_method: swd
+    methods:
+      swd:
+        target_cfg: target/stm32l4x.cfg
+        interface: stlink
+        adapter_speed_khz: 4000
+        flash_banks: [0]
+      dfu:
+        vid_pid: "0483:df11"
+        alt: 0
+
+  - id: stm32g071rb
+    name: STM32G071RB (Nucleo-G071RB)
+    family: G0 (Cortex-M0+)
+    flash: { base: 0x08000000, size_kb: 128, sector_kb: 2 }
+    default_method: swd
+    methods:
+      swd:
+        target_cfg: target/stm32g0x.cfg
+        interface: stlink
+        adapter_speed_khz: 4000
+        flash_banks: [0]
+
+  - id: stm32g474re
+    name: STM32G474RE (Nucleo-G474RE)
+    family: G4 (Cortex-M4)
+    flash: { base: 0x08000000, size_kb: 512, sector_kb: 2 }
+    default_method: swd
+    methods:
+      swd:
+        target_cfg: target/stm32g4x.cfg
+        interface: stlink
+        adapter_speed_khz: 4000
+        flash_banks: [0]
+      dfu:
+        vid_pid: "0483:df11"
+        alt: 0

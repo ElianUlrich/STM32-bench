@@ -1,0 +1,582 @@
+# Banco STM32 — programación y debug remoto sobre BeagleBoard-xM
+
+Aplicación web que convierte una **BeagleBoard-xM** (headless, sin pantalla ni teclado) en un banco
+de programación y depuración remota de microcontroladores **STM32**. Desde el navegador de tu PC
+(conectada por **Tailscale**) podés:
+
+- subir firmware (`.elf`, `.hex`, `.bin`) o usar el que sincronizás con Syncthing;
+- flashear, verificar, borrar, resetear, detener y reanudar el chip por **ST-Link (SWD) con OpenOCD**;
+- flashear, verificar y borrar por **USB DFU** (bootloader de ST, con `dfu-util`), entrando al
+  bootloader en forma manual, con GPIO o con un comando por puerto serie;
+- levantar un **servidor GDB** para depurar desde `arm-none-eabi-gdb`, VS Code o STM32CubeIDE;
+- ver en vivo la salida de OpenOCD/dfu-util y un **monitor serie**;
+- ver el estado de la placa y **apagarla o reiniciarla** con seguridad.
+
+```
+ Tu PC (navegador, GDB) ──Tailscale──► BeagleBoard-xM (app web :8080, OpenOCD GDB :3333)
+                                          │ USB host
+                                          ├── ST-Link (Nucleo o externo) ──SWD──► STM32
+                                          └── USB del propio STM32 (PA11/PA12) ──► STM32 (DFU)
+```
+
+Contenido: [Hardware](#hardware-y-conexiones) · [Seguridad](#seguridad) ·
+[Instalación](#instalación-en-la-beagleboard-xm) · [Tailscale](#tailscale) · [Uso](#uso-de-la-interfaz) ·
+[Configuración](#configuración) · [DFU y BootControl](#usb-dfu-y-bootcontrol) ·
+[Depurar con GDB](#depurar-con-gdb) · [Syncthing](#syncthing-alternativa-para-la-carpeta-de-proyectos) ·
+[SD en solo lectura](#opcional-sistema-de-archivos-en-solo-lectura) · [Desarrollo](#desarrollo-en-la-pc-modo-mock) ·
+[Problemas](#solución-de-problemas) · [Pendiente de verificar](#pendiente-de-verificar-en-hardware)
+
+---
+
+## Hardware y conexiones
+
+- **BeagleBoard-xM** (OMAP3/DM3730, Cortex-A8, 512 MB, armhf) con Debian 11/12 en la microSD.
+  Solo necesita 5 V y cable de red.
+- **ST-Link** (V2, V2-1, V3; integrado en una Nucleo/Discovery o externo) en un USB de la placa,
+  conectado al STM32 por **SWD** (SWDIO, SWCLK, GND, y NRST recomendado).
+- Para **DFU**: el **USB del propio STM32** (no el del ST-Link) en otro USB de la placa. En una
+  Nucleo suelen ser dos conectores distintos (el del ST-Link y el "USB USER"). Con los dos cables
+  conectados podés elegir el método desde la interfaz sin tocar nada.
+
+Tener en cuenta:
+
+- El dispositivo DFU (`0483:df11`) **solo existe mientras el chip está en el bootloader**. Con tu
+  firmware corriendo, ese USB no aparece (o aparece como tu dispositivo, p. ej. un CDC `/dev/ttyACM*`).
+- Varias placas en DFU tienen el mismo VID:PID; se distinguen por **número de serie** (el bootloader
+  de ST lo deriva del ID único del chip). La app lo pasa a `dfu-util -S`.
+- **Alimentación**: los 4 USB de la xM comparten poca corriente. Si alimentás varias placas o una que
+  consume mucho, usá un **hub USB con fuente propia**; si no, el USB se cae a mitad de un flasheo.
+- **Condiciones del bootloader DFU**: algunas familias sólo hacen USB DFU con un cristal externo de
+  ciertas frecuencias. Revisá la nota de aplicación **AN2606** de ST para tu chip.
+
+## Seguridad
+
+La app puede ejecutar comandos en la placa, así que:
+
+- **Accedé solo por Tailscale. No abras puertos en el router** ni hagas port-forwarding del 8080
+  ni del 3333. La BeagleBoard no debe ser accesible desde internet.
+- Además de Tailscale, la app **rechaza conexiones que no vengan de la red de Tailscale**
+  (`100.64.0.0/10`, `fd7a:115c:a1e0::/48`) o de localhost (`security.allowed_networks` en `bench.yaml`).
+  Así, ni siquiera alguien en la LAN del laboratorio puede entrar.
+- **Login** con usuario y contraseña. La contraseña se guarda como hash **scrypt** (biblioteca
+  estándar de Python, KDF recomendado por OWASP; se eligió en lugar de bcrypt/argon2 para no
+  compilar nada en armhf). La sesión es una cookie firmada `HttpOnly`, `SameSite=Strict`, con
+  vencimiento. Hay límite de intentos fallidos por IP.
+- **Nada de credenciales en el código**: van en `/etc/stm32-bench/bench.env` (permisos 640).
+- Los pedidos que modifican algo exigen el header `X-Bench` (protección CSRF adicional).
+- **Ningún comando se arma concatenando texto con la shell**: todo es `subprocess` con lista de
+  argumentos y sin `shell=True`. Chips, interfaces y backends salen de listas blancas en los YAML;
+  las rutas se resuelven dentro del directorio de proyectos (sin `..` ni symlinks hacia afuera) y los
+  nombres de archivo tienen una lista blanca de caracteres. Esto último es importante porque los
+  argumentos `-c` de OpenOCD son **Tcl**: una ruta con `[`, `]`, `{`, `}` o `$` podría inyectar
+  código Tcl.
+- El servicio corre con un **usuario sin privilegios** (`stm32bench`). Sudo le permite **solo**
+  `poweroff` y `reboot` **sin argumentos** (`/etc/sudoers.d/stm32-bench`, validado con `visudo -c`).
+- **El puerto GDB (3333) no tiene autenticación**: cualquiera que llegue a ese puerto controla el
+  chip. Por eso escucha por defecto **solo en la IP de Tailscale**, y OpenOCD se lanza con los puertos
+  telnet y Tcl deshabilitados. Si en tu tailnet hay otras personas, restringí los puertos con las
+  **ACL de Tailscale** (ver [Tailscale](#tailscale)).
+
+## Instalación en la BeagleBoard-xM
+
+Resumen (los detalles de cada paso siguen abajo):
+
+```bash
+sudo apt update && sudo apt install -y git tmux
+git clone <url-de-este-repo> ~/stm32-bench && cd ~/stm32-bench
+tmux new -s openocd              # la compilación tarda: que no dependa de la sesión SSH
+sudo bash scripts/build_openocd.sh
+sudo bash scripts/install.sh
+```
+
+Si clonás o copiás el repo desde Windows, asegurate de que los scripts tengan fin de línea **LF**
+(el `.gitattributes` del repo lo fuerza al clonar con git).
+
+### 0. Si la placa tiene la imagen vieja Ubuntu 16.04 (rcn-ee 2017)
+
+Esa imagen trae Python 3.5 y dfu-util 0.8, y su partición ocupa solo 1,6 GB aunque la microSD sea más
+grande. Antes de los pasos siguientes:
+
+```bash
+sudo dpkg --configure -a && sudo apt install -y apt-transport-https ca-certificates cloud-guest-utils
+sudo growpart /dev/mmcblk0 2 && sudo resize2fs /dev/mmcblk0p2      # usar toda la microSD
+tmux new -s prep
+sudo bash scripts/prepare_ubuntu1604.sh    # Python 3.9 en /opt/python3.9 + dfu-util 0.11 (~1-2 h)
+```
+
+`install.sh` detecta `/opt/python3.9` solo. En 16.04 no hay `python3-libgpiod` y el kernel 4.9 no
+soporta la API v2 de GPIO, así que el backend `gpio` de BootControl queda para más adelante (los
+backends `manual` y `serial_command` funcionan). systemd 229 muestra avisos por algunas opciones de
+endurecimiento del servicio que no conoce; se ignoran sin problema. Con una microSD de 4 GB el espacio
+alcanza justo (los scripts borran lo que compilan); para la partición de datos y el overlay de solo
+lectura conviene una de 8 GB o más.
+
+### 1. OpenOCD (fork de ST)
+
+El OpenOCD de Debian es demasiado viejo para H5/H7. `scripts/build_openocd.sh` compila e instala en
+`/usr/local` el fork oficial de ST (<https://github.com/STMicroelectronics/OpenOCD>, por defecto el tag
+`openocd-cubeide-v2.2.0`, el que usa STM32CubeIDE):
+
+- instala las dependencias (`build-essential`, `libtool`, `autoconf`, `automake`, `texinfo`,
+  `pkg-config`, `libusb-1.0-0-dev`, `libhidapi-dev`...);
+- clona o actualiza el código, compila con soporte ST-Link y jimtcl interno;
+- crea un **swap temporal de 1 GB** si RAM+swap no alcanzan (con 512 MB, `-j2` se queda sin memoria);
+- al final muestra `openocd --version` y verifica que estén `target/stm32h5x.cfg`,
+  `target/stm32h7x.cfg`, las interfaces, etc.
+
+**Es lento: en la xM tarda aproximadamente entre 45 y 90 minutos.** Correlo dentro de `tmux`
+(si se corta el SSH, volvés con `tmux attach -t openocd`). Es **idempotente**: si el commit pedido
+ya está instalado no recompila (`FORCE=1` para forzar; `OPENOCD_REF=<tag>` para otra versión).
+
+### 2. La app
+
+`sudo bash scripts/install.sh`:
+
+1. instala `python3-venv`, `dfu-util`, `python3-libgpiod`, etc.;
+2. crea el usuario `stm32bench` (grupos `plugdev`, `dialout`, `gpio`);
+3. copia la app a `/opt/stm32-bench` y crea el venv con las dependencias (en armv7 agrega
+   **piwheels** como índice extra para bajar wheels precompiladas; `USE_PIWHEELS=0` para desactivarlo);
+4. crea `/etc/stm32-bench` (config), `/var/lib/stm32-bench` (estado e historial) y
+   `/srv/stm32-bench/proyectos`;
+5. **pregunta usuario y contraseña** de la web y genera `/etc/stm32-bench/bench.env` con el hash y
+   una clave de sesión aleatoria (si ya existe, no lo toca);
+6. instala las **reglas udev** (`/etc/udev/rules.d/60-stm32-bench.rules`) para ST-Link
+   (`0483:3748, 374b, 374e, 374f, 3752, 3753, 3754, 3757`...), bootloader DFU (`0483:df11`) y `gpiochip`;
+7. genera `/etc/sudoers.d/stm32-bench`, lo **valida con `visudo -cf`** y recién entonces lo instala;
+8. registra y arranca el servicio **systemd** `stm32-bench` (arranque automático y reinicio ante fallos).
+
+Se puede volver a correr para actualizar la app: no pisa `bench.env` ni tus YAML (si cambiaron,
+deja la versión nueva como `*.yaml.dist`).
+
+Comandos útiles:
+
+```bash
+systemctl status stm32-bench
+journalctl -u stm32-bench -f
+sudo systemctl restart stm32-bench      # después de editar /etc/stm32-bench/*.yaml
+```
+
+Para cambiar la contraseña: generá un hash nuevo y reemplazá `BENCH_PASSWORD_HASH` en `bench.env`:
+
+```bash
+sudo /opt/stm32-bench/.venv/bin/python /opt/stm32-bench/scripts/hash_password.py
+```
+
+## Tailscale
+
+En la BeagleBoard (Debian armhf está soportado):
+
+```bash
+curl -fsSL https://tailscale.com/install.sh | sh
+sudo tailscale up --hostname=banco-stm32
+tailscale ip -4                           # la IP 100.x.y.z del banco
+```
+
+Seguí el enlace que muestra `tailscale up` para autorizar el equipo. En la consola de administración de
+Tailscale conviene **desactivar el vencimiento de la clave** de este equipo (key expiry): si vence,
+el banco queda inaccesible hasta que alguien entre físicamente.
+
+Luego, desde tu PC (con Tailscale activo): `http://banco-stm32:8080` (MagicDNS) o `http://100.x.y.z:8080`.
+
+Opcional:
+
+- **SSH por Tailscale**: `sudo tailscale up --ssh --hostname=banco-stm32`.
+- **HTTPS**: `sudo tailscale serve --bg 8080` publica la app en `https://banco-stm32.<tu-tailnet>.ts.net`
+  (solo dentro de la tailnet). En ese caso poné `BENCH_COOKIE_SECURE=1` en `bench.env`.
+- **ACL** para que solo tu usuario llegue a la web y al GDB: etiquetá la placa
+  (`sudo tailscale up --hostname=banco-stm32 --advertise-tags=tag:banco`, con `tag:banco` declarado
+  en `tagOwners`) y en la política de la tailnet:
+
+  ```json
+  "grants": [
+    { "src": ["tu-usuario@ejemplo.com"], "dst": ["tag:banco"], "ip": ["tcp:8080", "tcp:3333", "tcp:22"] }
+  ]
+  ```
+
+## Uso de la interfaz
+
+- **Target**: elegí el chip, el **método** (ST-Link/SWD o USB DFU; solo se habilitan los que el chip
+  declara en `chips.yaml`), la interfaz de OpenOCD y el **ST-Link** (se detectan todos los conectados
+  por número de serie; con más de uno hay que elegir). Con DFU, se listan los dispositivos en modo
+  DFU (`dfu-util -l`) o se deja en "Automático".
+- **Archivos**: arrastrá archivos a la zona de subida (van a `proyectos/_subidos/<proyecto>/`) o elegí
+  uno de los proyectos sincronizados. Solo se pueden **borrar** los subidos desde la web.
+- **Acciones**: Flashear (program + verify + reset), Verificar, Borrar flash, Reset, Halt, Run.
+  Para un `.bin` se pide la dirección de carga (por defecto la base de flash del chip). Con DFU, los
+  botones de Reset/Halt/Run y el servidor GDB se deshabilitan y se explica por qué.
+- **Un solo trabajo a la vez**: si el programador está ocupado, el pedido se rechaza (no se encola).
+  Se puede **cancelar** el trabajo en curso.
+- **Servidor GDB**: Iniciar/Detener; muestra `IP:puerto` para conectarse. Si querés flashear por SWD
+  con el servidor activo, la app avisa y ofrece detenerlo.
+- **Log en vivo** (Server-Sent Events) de OpenOCD/dfu-util e **historial** de operaciones con resultado.
+- **Monitor serie**: puerto USB-serie (p. ej. el VCP de la Nucleo, `/dev/ttyACM0`), baudrate
+  configurable y envío de texto con LF/CRLF/CR.
+- **Sistema**: IP, uptime, temperatura (si el kernel la expone), RAM, disco, versiones de OpenOCD y
+  dfu-util, y botones **Apagar** / **Reiniciar** con confirmación. Después de apagar:
+  **esperá ~30 s antes de cortar la alimentación; la placa no se puede volver a encender por software.**
+
+## Configuración
+
+Archivos en `/etc/stm32-bench/` (en el repo, `config/`).
+
+### `chips.yaml`: agregar un chip = agregar una entrada
+
+```yaml
+chips:
+  - id: stm32u575zi                 # [a-z0-9_-], único
+    name: STM32U575ZI
+    family: U5 (Cortex-M33)
+    flash: { base: 0x08000000, size_kb: 2048, sector_kb: 8 }
+    default_method: swd
+    methods:
+      swd:
+        target_cfg: target/stm32u5x.cfg       # relativo a los scripts de OpenOCD
+        interface: stlink-dap                 # id de bench.yaml -> interfaces
+        adapter_speed_khz: 4000
+        flash_banks: [0]                      # bancos a borrar en "Borrar flash"
+        # tcl_vars: { DUAL_BANK: 1 }          # variables antes del target (p. ej. H7 dual bank)
+        # erase_cmds: ["stm32l4x mass_erase 0"]   # reemplaza el borrado genérico
+      dfu:
+        vid_pid: "0483:df11"
+        alt: 0                                # "Internal Flash"
+        # address: 0x08000000                 # por defecto flash.base
+```
+
+Incluye STM32H503CB (`target/stm32h5x.cfg`), STM32H723VG (`target/stm32h7x.cfg`) y ejemplos F1, F4,
+L4, G0 y G4. Al arrancar, la app **verifica que los `.cfg` existan** en el OpenOCD instalado y avisa
+en la interfaz si falta alguno.
+
+Nota H5: la CPU del H5 está en el AP 1 del DAP, así que **no funciona con la interfaz HLA**
+(`stlink.cfg`); hace falta `stlink-dap` (ST-Link V2 con firmware ≥ J24, V2-1 o V3).
+
+### `bench.yaml`
+
+- `openocd.binary`, `openocd.scripts_dir`, `dfu_util.binary` y los timeouts.
+- `interfaces`: `stlink` (`interface/stlink.cfg`, `hla_swd`) y `stlink-dap`
+  (`interface/stlink-dap.cfg`, `dapdirect_swd`). El transporte se pasa explícitamente porque
+  `stlink-dap.cfg` no lo elige solo.
+- El ST-Link elegido se pasa como `adapter serial <serie>` (OpenOCD ≥ 0.12 y fork de ST); la app
+  detecta al arrancar si el OpenOCD instalado usa `adapter serial` o el viejo `hla_serial`.
+- `gdb.port` (3333) y `gdb.bind`: `tailscale` (recomendado), `all`, `localhost` o una IP.
+- `uploads.max_size_mb`, `scan.max_depth`, `serial.bauds`, `history.max_entries`.
+- `security.allowed_networks` y `security.session_hours`.
+- `boot_control`: ver la sección siguiente.
+
+## USB DFU y BootControl
+
+Con el método DFU:
+
+1. Si el archivo es `.elf` o `.hex`, se **convierte a `.bin`** en un directorio temporal (con
+   `pyelftools`/`intelhex`, sin necesitar el toolchain en la placa). Se usa la dirección de **carga**
+   (LMA) de cada segmento, así los valores iniciales de `.data` quedan en flash. Si hay **segmentos
+   discontinuos** se avisa (el hueco se rellena con 0xFF), y si hay datos **fuera de la flash
+   interna** (QSPI, RAM sin dirección de carga, bytes de opción) la conversión se rechaza.
+2. Si el chip no está ya en DFU, **BootControl** lo pone en bootloader y se espera a que aparezca
+   `0483:df11` (con timeout).
+3. `dfu-util -d 0483:df11 -a 0 -S <serie> -s 0x08000000:leave -D firmware.bin` (el `:leave` sale del
+   bootloader y ejecuta; se puede desmarcar). Verificar lee la flash con `-U` y compara; borrar usa
+   `:mass-erase:force`.
+4. BootControl devuelve el chip a su aplicación (siempre, aunque la operación falle).
+
+Backends (`boot_control.backend`):
+
+- **`manual`**: la web muestra "Poné BOOT0 en alto y reseteá la placa" con una cuenta regresiva y
+  sigue sola cuando aparece el dispositivo DFU. Al terminar recuerda volver BOOT0 a 0.
+- **`gpio`**: la BeagleBoard maneja **BOOT0** y **NRST** con **libgpiod** (`/dev/gpiochipN`, nunca
+  sysfs): BOOT0=1, pulso de NRST, espera DFU, y al final BOOT0=0 y pulso de NRST. Número de chip,
+  línea y polaridad (`active_low`) configurables.
+- **`serial_command`**: envía un comando configurable (p. ej. `"BOOTLOADER\n"`) por un puerto serie
+  a tu firmware, que tiene que saltar al bootloader de sistema. La dirección de la System Memory de
+  cada familia está en la AN2606. Esquema en el firmware:
+
+  ```c
+  /* Al recibir "BOOTLOADER\n": */
+  __disable_irq();
+  HAL_RCC_DeInit(); HAL_DeInit();                 /* periféricos y relojes a reset */
+  SysTick->CTRL = 0; SysTick->LOAD = 0; SysTick->VAL = 0;
+  for (int i = 0; i < 8; i++) { NVIC->ICER[i] = 0xFFFFFFFF; NVIC->ICPR[i] = 0xFFFFFFFF; }
+  __enable_irq();
+  uint32_t base = BOOTLOADER_ADDR;               /* ver AN2606 para tu chip */
+  __set_MSP(*(volatile uint32_t *)base);
+  ((void (*)(void))(*(volatile uint32_t *)(base + 4)))();
+  ```
+
+### ⚠️ Cableado del backend `gpio`: los GPIO de la BeagleBoard-xM son de 1,8 V
+
+**Los GPIO del conector de expansión de la BeagleBoard-xM trabajan a 1,8 V y NO toleran 3,3 V.
+No los conectes directo a BOOT0 ni a NRST del STM32 (3,3 V): hace falta adaptación de nivel.**
+
+```
+  NRST (open-drain con transistor NPN; config: nrst.active_low = false)
+
+   GPIO NRST (1,8 V) ──[ 4k7 ]──┐ B
+                                 │   2N3904 / BC547 / MMBT3904
+                                 C ────────────────► NRST del STM32
+                                 E ──┐                (tiene pull-up interno y
+                                     GND común        el capacitor de la placa)
+
+   GPIO en 1  -> transistor conduce -> NRST = 0 (reset)
+   GPIO en 0  -> transistor abierto -> NRST lo sube el pull-up del STM32
+
+  BOOT0 (traductor de nivel no inversor; config: boot0.active_low = false)
+
+   VIO_1V8 de la xM ──► VCCA   SN74LVC1T45   VCCB ◄── 3,3 V del target
+   GPIO BOOT0 ───────► A                    B ──[ 1k ]──► BOOT0 del STM32
+                       DIR ── VCCA (A -> B)       GND común
+```
+
+- **NRST nunca debe manejarse en push-pull a 3,3 V**: el transistor sólo lo lleva a 0; el STM32 y
+  la placa lo suben. Así también funciona el botón de reset.
+- Para BOOT0 **evitá un NPN inversor con pull-up**: si la BeagleBoard se apaga, BOOT0 quedaría en 1
+  y el STM32 arrancaría siempre en el bootloader. El traductor no inversor deja BOOT0 en 0 (por la
+  resistencia de pull-down de la placa) cuando la xM no lo maneja. Si usás otra etapa que invierte,
+  poné `active_low: true`.
+- **GND común** entre la BeagleBoard y el target.
+- Numeración: el SRM de la xM nombra los pines como `GPIO_n`; con libgpiod es el banco `n // 32`
+  (gpiochip) y la línea `n % 32`. Confirmalo en la placa con `gpiodetect` y `gpioinfo`, y verificá que
+  el **pinmux** del pin esté en modo GPIO. El ejemplo de `bench.yaml` (`gpiochip4`, líneas 11 y 12)
+  es solo ilustrativo.
+- Probá sin el STM32 conectado: `gpioset gpiochip4 11=1` y medí con el tester.
+
+## Depurar con GDB
+
+En la pestaña **Servidor GDB**, "Iniciar" lanza OpenOCD en modo servidor con el chip, la interfaz y el
+ST-Link elegidos, y muestra la dirección para conectarse (p. ej. `100.101.102.103:3333`).
+
+### `arm-none-eabi-gdb`
+
+```text
+$ arm-none-eabi-gdb build/Debug/firmware.elf
+(gdb) target extended-remote 100.101.102.103:3333
+(gdb) monitor reset halt
+(gdb) load
+(gdb) break main
+(gdb) continue
+```
+
+Con el servidor activo, los botones Reset/Halt/Run de la web se reemplazan por `monitor reset halt`,
+`monitor halt` y `monitor resume` desde GDB.
+
+### VS Code (Cortex-Debug, `servertype: "external"`)
+
+`.vscode/launch.json`:
+
+```json
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Banco STM32 (remoto)",
+      "type": "cortex-debug",
+      "request": "launch",
+      "servertype": "external",
+      "gdbTarget": "100.101.102.103:3333",
+      "executable": "${workspaceFolder}/build/Debug/firmware.elf",
+      "gdbPath": "arm-none-eabi-gdb",
+      "svdFile": "${workspaceFolder}/STM32H723.svd",
+      "runToEntryPoint": "main",
+      "overrideLaunchCommands": ["monitor reset halt", "load", "monitor reset halt"],
+      "overrideRestartCommands": ["monitor reset halt"]
+    },
+    {
+      "name": "Banco STM32 (adjuntar sin cargar)",
+      "type": "cortex-debug",
+      "request": "attach",
+      "servertype": "external",
+      "gdbTarget": "100.101.102.103:3333",
+      "executable": "${workspaceFolder}/build/Debug/firmware.elf",
+      "gdbPath": "arm-none-eabi-gdb"
+    }
+  ]
+}
+```
+
+(Si usás MagicDNS: `"gdbTarget": "banco-stm32:3333"`.)
+
+### STM32CubeIDE
+
+*Debug Configurations* → *STM32 C/C++ Application* → pestaña *Debugger* → *Debug probe*
+"ST-LINK (OpenOCD)" → marcar **Connect to remote GDB server**, *Host name* = IP de Tailscale,
+*Port* = 3333.
+
+## Syncthing (alternativa para la carpeta de proyectos)
+
+En lugar de subir por la web, podés sincronizar la carpeta de compilación de tu PC con
+`/srv/stm32-bench/proyectos` (la app la escanea y muestra cada subcarpeta como proyecto; ignora
+`.stfolder`, `.stversions` y los temporales de Syncthing).
+
+```bash
+sudo apt install -y syncthing
+sudo adduser --system --group --home /var/lib/syncthing-bench syncthing-bench
+sudo usermod -a -G stm32bench syncthing-bench      # puede escribir en proyectos (2775)
+sudo systemctl enable --now syncthing@syncthing-bench
+```
+
+- La GUI de Syncthing escucha en `127.0.0.1:8384`: accedé con un túnel
+  (`ssh -L 8384:127.0.0.1:8384 usuario@banco-stm32`) o cambiala a la IP de Tailscale.
+- En la placa, compartí la carpeta como **"Receive Only"** (solo recibir): así nada de lo que pase en el
+  banco se propaga a tu PC.
+- Agregá `_subidos` al `.stignore` para que las subidas por web no se mezclen.
+- Consumo: Syncthing usa unos 50–100 MB de RAM en la xM; con 512 MB alcanza, pero no lo dejes
+  escaneando carpetas enormes (compartí solo `build/` o `Debug/`).
+
+## Opcional: sistema de archivos en solo lectura
+
+La microSD se puede corromper si se corta la energía mientras escribe. Se puede montar la raíz en
+**solo lectura con overlay** (los cambios van a RAM y se pierden al reiniciar) y dejar los datos que
+deben persistir en una **partición aparte o en un pendrive**. Es un cambio delicado: hacelo cuando el
+banco ya funcione y con una copia de la SD.
+
+1. **Partición de datos** (en la SD o un pendrive USB), ext4, montada en `/srv/stm32-bench`:
+
+   ```text
+   # /etc/fstab
+   LABEL=benchdata  /srv/stm32-bench  ext4  defaults,noatime,commit=30  0  2
+   ```
+
+   Mové ahí lo que debe persistir y montalo con bind:
+   - `/var/lib/stm32-bench` (historial) → `/srv/stm32-bench/state` y `BENCH_STATE_DIR` en `bench.env`;
+   - **`/var/lib/tailscale`** (¡si no, cada reinicio pide volver a autorizar la placa!);
+   - la configuración de Syncthing, si lo usás.
+
+   ```text
+   /srv/stm32-bench/tailscale  /var/lib/tailscale  none  bind  0  0
+   ```
+
+2. **Raíz con overlay** usando `overlayroot`:
+
+   ```bash
+   sudo apt install -y overlayroot
+   echo 'overlayroot="tmpfs:recurse=0"' | sudo tee /etc/overlayroot.conf
+   sudo update-initramfs -u
+   ```
+
+   `recurse=0` hace que sólo la raíz vaya en RAM: la partición de datos sigue siendo de escritura.
+   La xM tiene que arrancar **con initramfs** (revisá que `uEnv.txt`/el bootloader cargue el initrd).
+   Después de reiniciar, `mount | grep overlay` debe mostrar la raíz como overlay.
+
+3. **Logs en RAM**: `Storage=volatile` en `/etc/systemd/journald.conf`.
+
+4. **Para hacer cambios** (actualizar la app, `apt`): `sudo overlayroot-chroot` y trabajar ahí, o
+   desactivarlo temporalmente con `overlayroot=disabled` en la línea de comandos del kernel.
+
+Si `overlayroot` no está disponible para tu versión de Debian, la alternativa es montar la raíz `ro`
+en `fstab` y poner `/var/log`, `/tmp` y `/var/tmp` en `tmpfs`.
+
+## Desarrollo en la PC (modo mock)
+
+Con `BENCH_MOCK=1` la app **simula OpenOCD, dfu-util, los ST-Link, el dispositivo DFU, el flujo de
+BootControl, el puerto serie y la información del sistema**, así se puede desarrollar y probar la
+interfaz sin hardware. Los simuladores (`scripts/mock_openocd.py`, `scripts/mock_dfu_util.py`) se
+ejecutan como subprocesos reales, así que el camino de ejecución y el log en vivo son los mismos que
+en la placa.
+
+```powershell
+# Windows
+powershell -ExecutionPolicy Bypass -File scripts\dev_run.ps1
+```
+
+```bash
+# Linux / macOS
+scripts/dev_run.sh
+```
+
+Abrí `http://127.0.0.1:8080`. El usuario es `dev` y la **contraseña se genera al azar en cada
+arranque** y se muestra en la consola (o definí `BENCH_PASSWORD_HASH`). En el primer arranque se crean
+proyectos de ejemplo en `dev-data/proyectos/`:
+
+- `demo-blink/Debug/` (`.elf`, `.hex`, `.bin`): todo funciona;
+- `casos-dfu/con-hueco.hex`: DFU avisa de segmentos discontinuos;
+- `casos-dfu/flash-externa.hex`: DFU rechaza datos fuera de la flash;
+- `casos-dfu/demo-falla.elf`: OpenOCD simula una verificación fallida.
+
+Otras fallas simuladas: `BENCH_MOCK_FAIL=connect` (OpenOCD no conecta al target) y
+`BENCH_MOCK_DFU_LEAVE_ERROR=1` (el error típico de dfu-util al salir con `:leave`).
+
+### Tests
+
+```bash
+python -m venv .venv
+.venv/Scripts/python -m pip install -r requirements-dev.txt    # Windows (.venv/bin/... en Linux)
+.venv/Scripts/python -m pytest
+```
+
+Cubren: validación de archivos y path traversal, construcción de comandos de OpenOCD y dfu-util
+(listas de argumentos, inyección Tcl), carga y validación de `chips.yaml`/`bench.yaml`, selección de
+método, conversión elf/hex→bin, flujo de BootControl (gpio con driver falso, manual, serial, mock y
+DFU completo con el simulador), detección de ST-Link por sysfs, autenticación y la API.
+
+## Estructura del repositorio
+
+```
+app/
+  main.py            FastAPI, middleware de seguridad, sesiones, estáticos
+  api.py             rutas /api/...
+  bench.py           servicio central: valida pedidos y arma los trabajos SWD/DFU
+  settings.py        variables de entorno y bench.yaml
+  chips.py           chips.yaml y verificación de .cfg
+  files.py           validación, subida, escaneo, borrado
+  convert.py         .elf/.hex -> .bin (DFU)
+  probe.py           ST-Link por sysfs y dispositivos DFU
+  programmers/       base (capacidades), openocd.py, dfu.py (comandos puros),
+                     runner.py (un trabajo a la vez), gdbserver.py
+  bootcontrol/       manual, gpio (libgpiod), serial_cmd, mock
+  serial_monitor.py  monitor serie (pyserial)
+  system.py          estado del sistema, apagar/reiniciar
+  events.py          bus para Server-Sent Events
+  history.py         historial (JSON Lines)
+web/                 index.html, app.js, style.css, login (sin build, sin dependencias JS)
+config/              chips.yaml, bench.yaml, bench.example.env
+scripts/             build_openocd.sh, install.sh, hash_password.py, dev_run.*, simuladores
+deploy/              systemd, udev, sudoers
+tests/               pytest
+```
+
+## Solución de problemas
+
+- **"No se detectó ningún ST-Link"**: `lsusb | grep 0483`. Si aparece pero la web dice "sin permisos",
+  revisá las reglas udev (`udevadm control --reload-rules && udevadm trigger`, o desenchufar/enchufar)
+  y que `stm32bench` esté en `plugdev` (`id stm32bench`).
+- **`Error: open failed` / `unable to find a matching ST-Link`**: el número de serie no coincide.
+  Con ST-Link/V2 viejos (serie binaria) actualizá el firmware del ST-Link (≥ V2.J21.S4).
+- **H5 no conecta con `stlink`**: usá `stlink-dap` (el H5 necesita dapdirect).
+- **Error con `stlink-dap`**: ST-Link V2 con firmware anterior a J24 no soporta dapdirect: actualizalo o
+  usá `stlink` (HLA) en chips que lo permitan.
+- **DFU "No apareció el dispositivo"**: estás usando el cable del ST-Link en lugar del USB del STM32,
+  BOOT0 no quedó en 1, falta el reset, o el chip necesita un cristal externo para USB DFU (AN2606).
+- **dfu-util devuelve error después de "File downloaded successfully"** con `:leave`: es habitual
+  (el dispositivo se desconecta antes de responder); la app lo trata como éxito y lo avisa en el log.
+- **La web no carga desde tu PC**: ¿Tailscale activo en ambos lados? ¿Tu IP está en
+  `security.allowed_networks`? `journalctl -u stm32-bench -n 50`.
+- **Apagar/Reiniciar da error de sudo**: `sudo -l -U stm32bench` debe listar solo poweroff y reboot.
+
+## Pendiente de verificar en hardware
+
+Todo lo siguiente se probó solamente con los simuladores del modo mock o con tests unitarios.
+Verificalo en la BeagleBoard:
+
+1. `scripts/build_openocd.sh` completo en la xM (tiempo, swap temporal, jimtcl) y que el OpenOCD
+   instalado traiga `stm32h5x.cfg`, `stm32h7x.cfg` y `stlink-dap.cfg`.
+2. Que las wheels de `pydantic-core` (FastAPI) se instalen en armv7 sin compilar (PyPI/piwheels) con
+   tu versión de Debian/Python.
+3. `scripts/install.sh`: creación de usuario/grupos, udev, `visudo -cf` del sudoers generado y
+   arranque del servicio systemd.
+4. Flashear/verificar/borrar/reset/halt/run reales en **STM32H503** (con `stlink-dap`) y **STM32H723**,
+   con la salida real de OpenOCD. En particular: borrado genérico `flash erase_sector 0 0 last`,
+   `verify_image` con el núcleo detenido y que halt/run por separado se comporten como se espera.
+5. Selección por `adapter serial` con dos ST-Link conectados, y la conversión a hex de la serie de un
+   ST-Link/V2 viejo (que coincida con la que espera OpenOCD).
+6. Servidor GDB escuchando en la IP de `tailscale0`, conexión desde `arm-none-eabi-gdb` y VS Code,
+   y la detección de "cliente conectado".
+7. DFU real: parseo de `dfu-util -l` de tu versión, `:leave`, lectura `-U` para verificar y
+   `:mass-erase:force` **sin** `-D` (depende de la versión de dfu-util: en algunas hace falta un
+   archivo). H503 y H723 en DFU (condiciones de AN2606).
+8. Backend `gpio`: API de `python3-libgpiod` (1.x de Debian o 2.x), numeración gpiochip/línea, pinmux,
+   niveles con el adaptador de 1,8 V → 3,3 V y tiempos de reset.
+9. Backend `serial_command` con tu firmware.
+10. Monitor serie con el VCP de la Nucleo (`/dev/ttyACM0`), desconexión en caliente.
+11. Datos del sistema en la xM: IP de `tailscale0` por ioctl, temperatura (el DM3730 puede no exponer
+    ninguna zona térmica), RAM y disco.
+12. Apagar y reiniciar vía sudo, y el tiempo real hasta poder cortar la energía.
+13. Consumo de RAM/CPU de la app en la xM (objetivo: < 80 MB) y fluidez del log en vivo.
+14. La sección opcional de overlay de solo lectura (`overlayroot`, initramfs en la xM).

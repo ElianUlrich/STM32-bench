@@ -1,0 +1,77 @@
+# Configuración del banco (hardware y red). Lo secreto (usuario, hash de la
+# contraseña, clave de sesión) va en bench.env, no acá.
+
+openocd:
+  binary: /usr/local/bin/openocd
+  # Si se omite, se deduce de binary: <prefijo>/share/openocd/scripts
+  scripts_dir: /usr/local/share/openocd/scripts
+  default_interface: stlink-dap
+  timeout_s: 180
+
+dfu_util:
+  # Se busca en el PATH: /usr/local/bin (compilado) antes que /usr/bin (apt).
+  binary: dfu-util
+  timeout_s: 300
+
+# Interfaces de programador para OpenOCD. "transport" se pasa como
+# "transport select ..." justo después del .cfg de la interfaz.
+interfaces:
+  stlink:
+    cfg: interface/stlink.cfg
+    transport: hla_swd
+    description: "ST-Link en modo HLA (compatible con V2 viejos; solo AP0)"
+  stlink-dap:
+    cfg: interface/stlink-dap.cfg
+    transport: dapdirect_swd
+    description: "ST-Link en modo dapdirect (V2 con firmware >= J24, V2-1, V3)"
+
+gdb:
+  port: 3333
+  # tailscale  -> escucha solo en la IP de tailscale0 (recomendado)
+  # all        -> 0.0.0.0 (todas las interfaces)
+  # localhost  -> 127.0.0.1 (usar con túnel SSH)
+  # o una IP concreta
+  bind: tailscale
+  tailscale_interface: tailscale0
+
+uploads:
+  max_size_mb: 16
+
+scan:
+  max_depth: 5
+
+serial:
+  default_baud: 115200
+  bauds: [9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600, 1000000, 2000000]
+
+history:
+  max_entries: 200
+
+security:
+  # Solo se aceptan conexiones desde estas redes (defensa en profundidad:
+  # además de Tailscale y del login). 100.64.0.0/10 y fd7a:115c:a1e0::/48 son
+  # los rangos de Tailscale.
+  allowed_networks:
+    - 127.0.0.0/8
+    - ::1/128
+    - 100.64.0.0/10
+    - fd7a:115c:a1e0::/48
+  session_hours: 12
+
+# Cómo se pone el STM32 en modo bootloader (DFU).
+boot_control:
+  backend: manual          # manual | gpio | serial_command
+  # Tiempo máximo para que aparezca el dispositivo DFU. Con backend manual
+  # tiene que alcanzar para que alguien mueva BOOT0 y apriete reset.
+  timeout_s: 60
+  gpio:
+    # ¡Los GPIO de la BeagleBoard-xM son de 1,8 V! Ver README (adaptación de nivel).
+    # Numeración: GPIO_n del SRM -> banco n // 32, línea n % 32. Confirmar con gpioinfo.
+    boot0: { chip: gpiochip4, line: 11, active_low: false }
+    nrst:  { chip: gpiochip4, line: 12, active_low: false }
+    reset_pulse_ms: 50
+    settle_ms: 200
+  serial_command:
+    port: /dev/ttyACM0
+    baud: 115200
+    command: "BOOTLOADER\n"

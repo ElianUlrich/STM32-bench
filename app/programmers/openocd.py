@@ -1,0 +1,158 @@
+"""Construcción de comandos de OpenOCD (funciones puras, sin efectos).
+
+Siempre se devuelve una LISTA de argumentos para subprocess (sin shell). Ojo:
+los argumentos de "-c" son código Tcl que interpreta OpenOCD, por eso:
+  * las rutas pasan por ensure_tcl_safe() y van entre llaves {...} (en Tcl el
+    contenido entre llaves es literal, sin sustituciones);
+  * los números se formatean acá (nunca se copia texto del usuario);
+  * el número de serie del ST-Link se valida con una lista blanca.
+"""
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+from pathlib import Path
+from typing import List, Optional, Sequence, Tuple
+
+from ..chips import SwdParams
+from ..files import ensure_tcl_safe
+from ..settings import InterfaceConfig
+
+# Números de serie de ST-Link: alfanuméricos (los V2 con serie binaria se
+# convierten a hex en probe.py, igual que hace OpenOCD).
+PROBE_SERIAL_RE = re.compile(r"^[A-Za-z0-9]{1,64}$")
+# Comando para elegir el adaptador por número de serie según la versión:
+# OpenOCD >= 0.12 (y el fork de ST) usan "adapter serial"; antes, "hla_serial".
+SERIAL_COMMANDS = ("adapter serial", "hla_serial")
+
+
+class CommandError(ValueError):
+    pass
+
+
+@dataclass(frozen=True)
+class OpenOcdSetup:
+    """Todo lo necesario para invocar OpenOCD con un adaptador concreto."""
+    command: Tuple[str, ...]            # ("openocd",) o el simulador en modo mock
+    scripts_dir: Optional[str]
+    interface: InterfaceConfig
+    serial: Optional[str] = None
+    serial_command: str = "adapter serial"
+
+
+def _hex(value: int) -> str:
+    if not 0 <= value <= 0xFFFFFFFF:
+        raise CommandError(f"Dirección fuera de rango: {value}")
+    return f"0x{value:08X}"
+
+
+def _tcl_path(path: Path) -> str:
+    return "{" + ensure_tcl_safe(path) + "}"
+
+
+def base_args(setup: OpenOcdSetup, swd: SwdParams, extra_config: Sequence[str] = ()) -> List[str]:
+    """Parte común: interfaz, transporte, serie, variables, target y velocidad.
+
+    El orden importa: el serie va después del .cfg de la interfaz (que elige el
+    driver) y antes del target; la velocidad va después del target porque el
+    .cfg del target define su propia velocidad por defecto.
+    """
+    if setup.serial_command not in SERIAL_COMMANDS:
+        raise CommandError(f"Comando de serie no soportado: {setup.serial_command}")
+    args: List[str] = list(setup.command)
+    if setup.scripts_dir:
+        args += ["-s", str(setup.scripts_dir)]
+    for cmd in extra_config:
+        args += ["-c", cmd]
+    args += ["-f", setup.interface.cfg]
+    if setup.interface.transport:
+        args += ["-c", f"transport select {setup.interface.transport}"]
+    if setup.serial:
+        if not PROBE_SERIAL_RE.fullmatch(setup.serial):
+            raise CommandError("Número de serie de ST-Link inválido")
+        args += ["-c", f"{setup.serial_command} {setup.serial}"]
+    for name, value in swd.tcl_vars:
+        args += ["-c", f"set {name} {value}"]
+    args += ["-f", swd.target_cfg]
+    args += ["-c", f"adapter speed {int(swd.adapter_speed_khz)}"]
+    return args
+
+
+def _needs_address(path: Path) -> bool:
+    return path.suffix.lower() == ".bin"
+
+
+def flash_args(setup: OpenOcdSetup, swd: SwdParams, firmware: Path, address: Optional[int]) -> List[str]:
+    """program + verify + reset. Para .bin la dirección es obligatoria."""
+    program = f"program {_tcl_path(firmware)}"
+    if _needs_address(firmware):
+        if address is None:
+            raise CommandError("Para un .bin hace falta la dirección de carga")
+        program += f" {_hex(address)}"
+    program += " verify reset exit"
+    return base_args(setup, swd) + ["-c", program]
+
+
+def verify_args(setup: OpenOcdSetup, swd: SwdParams, firmware: Path, address: Optional[int]) -> List[str]:
+    """Solo verificar: halt, verify_image, resume (no reprograma nada)."""
+    verify = f"verify_image {_tcl_path(firmware)}"
+    if _needs_address(firmware):
+        if address is None:
+            raise CommandError("Para un .bin hace falta la dirección de carga")
+        verify += f" {_hex(address)} bin"
+    return base_args(setup, swd) + ["-c", "init", "-c", "halt", "-c", verify, "-c", "resume", "-c", "shutdown"]
+
+
+def erase_args(setup: OpenOcdSetup, swd: SwdParams) -> List[str]:
+    """Borrado completo. Por defecto borra todos los sectores de cada banco."""
+    args = base_args(setup, swd) + ["-c", "init", "-c", "reset halt"]
+    if swd.erase_cmds:
+        for cmd in swd.erase_cmds:
+            args += ["-c", cmd]
+    else:
+        for bank in swd.flash_banks:
+            args += ["-c", f"flash erase_sector {int(bank)} 0 last"]
+    return args + ["-c", "shutdown"]
+
+
+def reset_args(setup: OpenOcdSetup, swd: SwdParams) -> List[str]:
+    return base_args(setup, swd) + ["-c", "init", "-c", "reset run", "-c", "shutdown"]
+
+
+def halt_args(setup: OpenOcdSetup, swd: SwdParams) -> List[str]:
+    return base_args(setup, swd) + ["-c", "init", "-c", "halt", "-c", "shutdown"]
+
+
+def resume_args(setup: OpenOcdSetup, swd: SwdParams) -> List[str]:
+    return base_args(setup, swd) + ["-c", "init", "-c", "resume", "-c", "shutdown"]
+
+
+def gdb_server_args(setup: OpenOcdSetup, swd: SwdParams, port: int, bind_ip: str) -> List[str]:
+    """OpenOCD como servidor GDB persistente.
+
+    telnet y tcl se deshabilitan: "bindto" aplica a todos los puertos y no
+    queremos exponer la consola de OpenOCD en la red. Solo queda el puerto GDB.
+    """
+    if not 1024 <= int(port) <= 65535:
+        raise CommandError("Puerto GDB fuera de rango")
+    import ipaddress
+    ipaddress.ip_address(bind_ip)  # lanza ValueError si no es una IP
+    config = [
+        f"bindto {bind_ip}",
+        f"gdb_port {int(port)}",
+        "telnet_port disabled",
+        "tcl_port disabled",
+    ]
+    return base_args(setup, swd, extra_config=config) + ["-c", "init"]
+
+
+def version_args(command: Sequence[str]) -> List[str]:
+    return list(command) + ["--version"]
+
+
+def serial_probe_args(command: Sequence[str], scripts_dir: Optional[str]) -> List[str]:
+    """Pregunta a OpenOCD si conoce 'adapter serial' (para elegir el comando)."""
+    args = list(command)
+    if scripts_dir:
+        args += ["-s", str(scripts_dir)]
+    return args + ["-c", "help adapter serial", "-c", "shutdown"]

@@ -1,0 +1,11 @@
+# Dependencias de ejecución. Todas son Python puro salvo pydantic-core (FastAPI),
+# que tiene wheels armv7l en PyPI/piwheels. Rangos amplios para funcionar con
+# Python 3.9 (Debian 11) en adelante.
+fastapi>=0.100,<1
+uvicorn>=0.23
+python-multipart>=0.0.6
+itsdangerous>=2.1
+PyYAML>=5.4
+pyserial>=3.5
+intelhex>=2.3
+pyelftools>=0.29

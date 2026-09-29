@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+dev-data/
+*.env
+!config/bench.example.env

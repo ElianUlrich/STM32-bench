@@ -1,0 +1,9 @@
+[project]
+name = "stm32-bench"
+version = "0.1.0"
+description = "Banco de programación y debug remoto de STM32 sobre BeagleBoard-xM"
+requires-python = ">=3.9"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Banco STM32</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1.5"/><path d="M9 2v4M12 2v4M15 2v4M9 18v4M12 18v4M15 18v4M2 9h4M2 12h4M2 15h4M18 9h4M18 12h4M18 15h4"/></svg>
+      <span>Banco STM32</span>
+      <span id="mock-badge" class="badge warn" hidden>MODO MOCK</span>
+    </div>
+    <div class="top-status">
+      <span class="pill" id="pill-job"><i class="dot"></i><span>Libre</span></span>
+      <span class="pill" id="pill-gdb"><i class="dot"></i><span>GDB detenido</span></span>
+      <span class="pill hide-sm" id="pill-host"><span>—</span></span>
+    </div>
+    <div class="top-user">
+      <span id="user-name" class="muted hide-sm"></span>
+      <button class="btn ghost small" id="btn-logout" type="button">Salir</button>
+    </div>
+  </header>
+
+  <div id="config-errors" class="banner error" hidden></div>
+  <div id="cfg-missing" class="banner warn" hidden></div>
+
+  <main class="layout">
+    <!-- Columna izquierda: target, acciones y GDB -->
+    <section class="col-left">
+      <div class="card">
+        <h2>Target</h2>
+        <label class="field">
+          <span>Chip</span>
+          <select id="sel-chip"></select>
+        </label>
+        <div class="field">
+          <span>Método</span>
+          <div class="segmented" id="seg-method" role="radiogroup">
+            <button type="button" data-method="swd" role="radio">ST-Link (SWD)</button>
+            <button type="button" data-method="dfu" role="radio">USB DFU</button>
+          </div>
+        </div>
+
+        <div id="swd-fields">
+          <label class="field">
+            <span>Interfaz</span>
+            <select id="sel-interface"></select>
+          </label>
+          <div class="field">
+            <span>ST-Link <button type="button" class="link small" id="btn-refresh-probes">actualizar</button></span>
+            <select id="sel-probe"></select>
+            <small id="probe-note" class="note"></small>
+          </div>
+        </div>
+
+        <div id="dfu-fields" hidden>
+          <div class="field">
+            <span>Dispositivo DFU <button type="button" class="link small" id="btn-refresh-dfu">actualizar</button></span>
+            <select id="sel-dfu"></select>
+            <small id="dfu-note" class="note"></small>
+          </div>
+          <p class="note">Bootloader: <strong id="boot-desc">—</strong></p>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Firmware</h2>
+        <div id="fw-selected" class="fw-selected empty">Elegí un archivo en la pestaña <em>Archivos</em></div>
+        <label class="field" id="addr-field" hidden>
+          <span>Dirección de carga (.bin)</span>
+          <input id="inp-address" type="text" spellcheck="false" autocomplete="off" placeholder="0x08000000">
+        </label>
+        <label class="check" id="leave-field" hidden>
+          <input type="checkbox" id="chk-leave" checked>
+          <span>Salir del bootloader y ejecutar (<code>:leave</code>)</span>
+        </label>
+      </div>
+
+      <div class="card">
+        <h2>Acciones</h2>
+        <div class="actions">
+          <button class="btn primary wide" data-action="flash" type="button">Flashear</button>
+          <button class="btn" data-action="verify" type="button">Verificar</button>
+          <button class="btn danger-outline" data-action="erase" type="button">Borrar flash</button>
+          <button class="btn" data-action="reset" type="button">Reset</button>
+          <button class="btn" data-action="halt" type="button">Halt</button>
+          <button class="btn" data-action="resume" type="button">Run</button>
+        </div>
+        <p id="dfu-reason" class="note info" hidden></p>
+        <div id="job-box" class="job-box" hidden>
+          <div class="job-line"><i class="spinner"></i><span id="job-desc"></span></div>
+          <button class="btn small" id="btn-cancel" type="button">Cancelar</button>
+        </div>
+        <div id="last-result" class="last-result" hidden></div>
+      </div>
+
+      <div class="card" id="gdb-card">
+        <h2>Servidor GDB</h2>
+        <div class="gdb-status">
+          <i class="dot" id="gdb-dot"></i>
+          <span id="gdb-state">Detenido</span>
+        </div>
+        <div id="gdb-connect" class="gdb-connect" hidden>
+          <code id="gdb-addr"></code>
+          <button class="btn small" id="btn-copy-gdb" type="button">Copiar</button>
+        </div>
+        <small class="note" id="gdb-note"></small>
+        <div class="row">
+          <button class="btn" id="btn-gdb-start" type="button">Iniciar</button>
+          <button class="btn" id="btn-gdb-stop" type="button" disabled>Detener</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Columna derecha: pestañas + log siempre visible -->
+    <section class="col-right">
+      <div class="panel tabs-panel">
+        <nav class="tabs" role="tablist">
+          <button type="button" role="tab" data-tab="files" class="active">Archivos</button>
+          <button type="button" role="tab" data-tab="serial">Monitor serie</button>
+          <button type="button" role="tab" data-tab="history">Historial</button>
+          <button type="button" role="tab" data-tab="system">Sistema</button>
+        </nav>
+
+        <div class="tab" id="tab-files">
+          <div id="dropzone" class="dropzone" tabindex="0">
+            <input type="file" id="file-input" accept=".elf,.hex,.bin" multiple hidden>
+            <div>Arrastrá <strong>.elf</strong>, <strong>.hex</strong> o <strong>.bin</strong> acá, o <button type="button" class="link" id="btn-pick">elegí archivos</button></div>
+            <label class="inline">Proyecto <input id="inp-project" type="text" value="general" spellcheck="false" autocomplete="off"></label>
+            <small class="muted" id="upload-limit"></small>
+          </div>
+          <div id="upload-status" class="note"></div>
+          <div class="files-toolbar">
+            <input id="inp-filter" type="search" placeholder="Filtrar archivos…" autocomplete="off">
+            <button type="button" class="btn small ghost" id="btn-refresh-files">Actualizar</button>
+          </div>
+          <div id="files-list" class="files-list"></div>
+          <small class="muted" id="projects-dir"></small>
+        </div>
+
+        <div class="tab" id="tab-serial" hidden>
+          <div class="serial-bar">
+            <select id="sel-port"></select>
+            <select id="sel-baud"></select>
+            <button class="btn small" id="btn-serial-open" type="button">Abrir</button>
+            <button class="btn small" id="btn-serial-close" type="button" disabled>Cerrar</button>
+            <button class="btn small ghost" id="btn-serial-clear" type="button">Limpiar</button>
+            <label class="check small"><input type="checkbox" id="chk-serial-auto" checked><span>Autoscroll</span></label>
+          </div>
+          <pre id="serial-out" class="term"></pre>
+          <form class="serial-send" id="serial-form">
+            <input id="inp-serial" type="text" placeholder="Texto a enviar…" autocomplete="off" spellcheck="false">
+            <select id="sel-eol" title="Fin de línea">
+              <option value="\n">LF</option>
+              <option value="\r\n">CRLF</option>
+              <option value="\r">CR</option>
+              <option value="">Nada</option>
+            </select>
+            <button class="btn small primary" type="submit">Enviar</button>
+          </form>
+        </div>
+
+        <div class="tab" id="tab-history" hidden>
+          <table class="table" id="history-table">
+            <thead><tr><th>Hora</th><th>Operación</th><th>Resultado</th><th>Duración</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+
+        <div class="tab" id="tab-system" hidden>
+          <div class="sys-grid" id="sys-grid"></div>
+          <div class="power">
+            <h3>Energía</h3>
+            <p class="note">Apagá la placa antes de cortar la alimentación. Después de apagarla no se puede volver a encender por software.</p>
+            <div class="row">
+              <button class="btn danger" id="btn-poweroff" type="button">Apagar</button>
+              <button class="btn" id="btn-reboot" type="button">Reiniciar</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel log-panel" id="log-panel">
+        <div class="log-head">
+          <h2>Log en vivo</h2>
+          <div class="log-tools">
+            <label class="check small"><input type="checkbox" id="chk-log-auto" checked><span>Autoscroll</span></label>
+            <button class="btn small ghost" id="btn-log-clear" type="button">Limpiar</button>
+            <button class="btn small ghost" id="btn-log-toggle" type="button">Ocultar</button>
+          </div>
+        </div>
+        <pre id="log-out" class="term log"></pre>
+      </div>
+    </section>
+  </main>
+
+  <!-- Diálogo de confirmación genérico -->
+  <dialog id="dlg-confirm" class="dialog">
+    <h3 id="confirm-title"></h3>
+    <p id="confirm-text"></p>
+    <div class="row end">
+      <button class="btn" type="button" id="confirm-cancel">Cancelar</button>
+      <button class="btn primary" type="button" id="confirm-ok">Aceptar</button>
+    </div>
+  </dialog>
+
+  <!-- Bootloader manual -->
+  <dialog id="dlg-boot" class="dialog">
+    <h3>Modo bootloader</h3>
+    <p id="boot-text"></p>
+    <p class="countdown" id="boot-countdown"></p>
+    <div class="row end">
+      <button class="btn" id="btn-boot-cancel" type="button">Cancelar operación</button>
+    </div>
+  </dialog>
+
+  <!-- Pantalla tras apagar / reiniciar -->
+  <div id="power-screen" class="power-screen" hidden>
+    <div class="power-box">
+      <h2 id="power-title"></h2>
+      <p id="power-text"></p>
+      <p class="countdown" id="power-countdown"></p>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" hidden></div>
+</body>
+</html>

@@ -1,0 +1,7 @@
+# La placa es Linux: todo con fin de línea LF aunque el repo se clone en Windows
+# (un script .sh con CRLF no corre en bash).
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.bin binary
+*.elf binary

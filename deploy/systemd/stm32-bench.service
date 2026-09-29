@@ -1,0 +1,34 @@
+# Servicio de la app web del banco STM32. install.sh reemplaza @SERVICE_USER@ y @APP_DIR@.
+# OpenOCD (servidor GDB) NO es un servicio fijo: lo arranca y detiene la app.
+[Unit]
+Description=Banco STM32 - programacion y debug remoto
+Wants=network-online.target
+After=network-online.target tailscaled.service
+
+[Service]
+Type=simple
+User=@SERVICE_USER@
+Group=@SERVICE_USER@
+WorkingDirectory=@APP_DIR@
+EnvironmentFile=/etc/stm32-bench/bench.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=@APP_DIR@/.venv/bin/python -m uvicorn --factory app.main:create_app --host ${BENCH_HOST} --port ${BENCH_PORT} --no-access-log
+Restart=on-failure
+RestartSec=5
+# Detener el servicio mata también OpenOCD/dfu-util hijos.
+KillMode=control-group
+TimeoutStopSec=15
+
+# Endurecimiento. NoNewPrivileges queda desactivado a propósito: sudo
+# (poweroff/reboot, limitado por /etc/sudoers.d/stm32-bench) lo necesita.
+PrivateTmp=yes
+ProtectSystem=full
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictRealtime=yes
+MemoryHigh=200M
+
+[Install]
+WantedBy=multi-user.target
