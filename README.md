@@ -19,6 +19,18 @@ de programación y depuración remota de microcontroladores **STM32**. Desde el 
                                           └── USB del propio STM32 (PA11/PA12) ──► STM32 (DFU)
 ```
 
+## Estado del proyecto (30/09/2026)
+
+- ✔ Aplicación instalada y funcionando en la BeagleBoard-xM (Ubuntu 16.04 + Python 3.9 compilado).
+- ✔ Acceso remoto por Tailscale y servicio systemd que arranca solo.
+- ✔ OpenOCD (fork de ST) compilado en la placa; conexión SWD con un **STM32H503CBT6** mediante un
+  ST-LINK/V2 original verificada.
+- ⏳ En curso: flasheo del firmware de prueba ([firmware/h503_leds](firmware/h503_leds/)) y depuración
+  remota con GDB.
+- 📄 Documentación completa, con diagramas de bloques y la bitácora de la puesta en marcha:
+  [docs/Banco_STM32_Documentacion.pdf](docs/Banco_STM32_Documentacion.pdf) (se genera con
+  `docs/generar_documentacion.py`).
+
 Contenido: [Hardware](#hardware-y-conexiones) · [Seguridad](#seguridad) ·
 [Instalación](#instalación-en-la-beagleboard-xm) · [Tailscale](#tailscale) · [Uso](#uso-de-la-interfaz) ·
 [Configuración](#configuración) · [DFU y BootControl](#usb-dfu-y-bootcontrol) ·
@@ -530,6 +542,8 @@ web/                 index.html, app.js, style.css, login (sin build, sin depend
 config/              chips.yaml, bench.yaml, bench.example.env
 scripts/             build_openocd.sh, install.sh, hash_password.py, dev_run.*, simuladores
 deploy/              systemd, udev, sudoers
+firmware/h503_leds/  firmware de prueba para STM32H503 (LEDs en PA0..PA7), fuentes y compilados
+docs/                documentación PDF y su generador
 tests/               pytest
 ```
 

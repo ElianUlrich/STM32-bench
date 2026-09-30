@@ -32,7 +32,8 @@ chips:
         target_cfg: target/stm32h5x.cfg
         # La CPU del H5 está en el AP 1: el modo HLA no sirve, hace falta dapdirect.
         interface: stlink-dap
-        adapter_speed_khz: 4000
+        # 1000 kHz: probado en el banco con cables dupont (4000 kHz fallaba de forma intermitente).
+        adapter_speed_khz: 1000
         flash_banks: [0]
       dfu:
         vid_pid: "0483:df11"
