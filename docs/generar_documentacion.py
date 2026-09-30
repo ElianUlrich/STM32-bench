@@ -27,7 +27,7 @@ from reportlab.platypus import (KeepTogether, PageBreak, Paragraph, Preformatted
                                 SimpleDocTemplate, Spacer, Table, TableStyle)
 
 OUT = Path(__file__).resolve().parent / "Banco_STM32_Documentacion.pdf"
-FECHA = date(2026, 9, 29)
+FECHA = date(2026, 9, 30)
 
 # ----------------------------------------------------------------------------- fuentes
 
@@ -342,11 +342,11 @@ ESTADO_PASOS = [
     (["3 · Agrandar", "partición"], "ok"),
     (["4 · Copiar", "el código"], "ok"),
     (["5 · Python 3.9", "+ dfu-util 0.11"], "ok"),
-    (["6 · Compilar", "OpenOCD (ST)"], "curso"),
-    (["7 · install.sh", "servicio + udev"], "pendiente"),
+    (["6 · Compilar", "OpenOCD (ST)"], "ok"),
+    (["7 · install.sh", "servicio + udev"], "ok"),
     (["8 · Tailscale", "acceso remoto"], "ok"),
-    (["9 · Prueba con", "Nucleo / ST-Link"], "pendiente"),
-    (["10 · Verificación", "en hardware"], "pendiente"),
+    (["9 · Conexión SWD", "con el H503"], "ok"),
+    (["10 · Flasheo y", "debug remoto"], "curso"),
 ]
 COLORES_ESTADO = {"ok": (ACENTO_SUAVE, ACENTO, "hecho"), "curso": (AMBAR_SUAVE, AMBAR, "en curso"),
                   "pendiente": (GRIS_FONDO, GRIS_BORDE, "pendiente")}
@@ -377,6 +377,44 @@ def diagrama_estado() -> Drawing:
     return d
 
 
+def diagrama_conexion() -> Drawing:
+    """Diagrama 5: cableado BeagleBoard -> ST-LINK/V2 -> STM32H503."""
+    d = Drawing(495, 232)
+    # Fuente y BeagleBoard
+    caja(d, 0, 182, 120, 40, ["Fuente 5 V", "≥ 2,5 A (ideal 3 A)"], fondo=AMBAR_SUAVE, borde=AMBAR, tam=7.8)
+    flecha(d, [(60, 182), (60, 168)], color=AMBAR)
+    caja(d, 0, 40, 120, 128, [], fondo=ACENTO_SUAVE, borde=ACENTO)
+    titulo_grupo(d, 60, 152, "BeagleBoard-xM", color=ACENTO_OSC, anchor="middle")
+    for i, t in enumerate(["LAN9514:", "hub USB + Ethernet", "(comparten", "alimentación)"]):
+        etiqueta(d, 60, 130 - i * 10, t, tam=7)
+    caja(d, 12, 50, 96, 24, ["USB host"], borde=ACENTO, tam=7.8)
+    flecha(d, [(108, 62), (160, 62)], color=VIOLETA, doble=True)
+    etiqueta(d, 134, 66, "USB", tam=7)
+    # ST-LINK/V2
+    caja(d, 160, 40, 120, 172, [], fondo=VIOLETA_SUAVE, borde=VIOLETA)
+    titulo_grupo(d, 220, 196, "ST-LINK/V2", color=VIOLETA, anchor="middle")
+    etiqueta(d, 220, 186, "firmware V2J46S7 · 0483:3748", tam=6.6)
+    etiqueta(d, 220, 176, "conector de 20 pines", tam=6.6)
+    # STM32H503
+    caja(d, 350, 40, 145, 172, [], fondo=ROJO_SUAVE, borde=ROJO)
+    titulo_grupo(d, 422, 196, "STM32H503CBT6", color=ROJO, anchor="middle")
+    etiqueta(d, 422, 186, "alimentada aparte (3,3 V)", tam=6.6)
+    cables = [(155, "1 · VAPP", "3,3 V", AMBAR, None),
+              (130, "7 · SWDIO", "PA13", AZUL, None),
+              (105, "9 · SWCLK", "PA14", AZUL, None),
+              (80, "4 · GND", "GND", TEXTO, None),
+              (55, "15 · NRST", "NRST (opcional)", GRIS, [3, 2])]
+    for y, izq, der, color, trazo in cables:
+        d.add(Line(280, y, 350, y, strokeColor=color, strokeWidth=1.6, strokeDashArray=trazo))
+        etiqueta(d, 274, y - 2.5, izq, anchor="end", tam=7.6, color=TEXTO, negrita=True)
+        etiqueta(d, 356, y - 2.5, der, anchor="start", tam=7.6, color=TEXTO, negrita=True)
+    caja(d, 440, 60, 48, 100, ["LEDs", "PA0", "…", "PA7"], fondo=colors.white, borde=ROJO, tam=7.4)
+    etiqueta(d, 247, 22, "El pin 1 (VAPP) sólo mide la tensión: el ST-LINK/V2 no alimenta al micro.",
+             tam=7.2, color=TEXTO)
+    etiqueta(d, 247, 11, "Sin GND común el SWD falla aunque la tensión se lea bien.", tam=7.2, color=TEXTO)
+    return d
+
+
 def figura(dibujo: Drawing, leyenda: str):
     return KeepTogether([dibujo, Paragraph(leyenda, ST["leyenda"])])
 
@@ -393,8 +431,9 @@ def contenido() -> list:
           P("BeagleBoard-xM · OpenOCD (SWD) · USB DFU · acceso por Tailscale", "subtitulo"),
           Spacer(1, 6 * mm),
           P(f"Documento de trabajo — actualizado al {fecha}", "cuerpo"),
-          P("Estado: aplicación terminada y probada en modo simulación; puesta en marcha de la placa en curso.",
-            "cuerpo"),
+          P("Estado: la aplicación está instalada y funcionando en la BeagleBoard-xM, con acceso remoto por "
+            "Tailscale, y la conexión SWD con el STM32H503 está verificada. En curso: flasheo del firmware de "
+            "prueba y depuración remota con GDB.", "cuerpo"),
           Spacer(1, 10 * mm),
           recuadro("<b>Resumen.</b> Una BeagleBoard-xM sin pantalla ni teclado, ubicada en un banco de laboratorio, "
                    "funciona como programador y depurador remoto de microcontroladores STM32. Desde el navegador de "
@@ -403,12 +442,42 @@ def contenido() -> list:
                    "y un monitor serie, y se controla la placa (apagar / reiniciar)."),
           Spacer(1, 12 * mm),
           P("<b>Contenido</b>", "h2")]
-    indice = ["1. La idea", "2. Arquitectura del sistema (diagrama de bloques)",
+    indice = ["Resumen en siete pasos", "1. La idea", "2. Arquitectura del sistema (diagrama de bloques)",
               "3. Arquitectura de software (diagrama de bloques)", "4. Métodos de programación: SWD y USB DFU",
               "5. Seguridad", "6. Configuración", "7. Desarrollo y pruebas sin hardware",
-              "8. Puesta en marcha de la BeagleBoard-xM (bitácora)", "9. Próximos pasos",
+              "8. Puesta en marcha de la BeagleBoard-xM (bitácora)", "9. Firmware de prueba para el STM32H503",
+              "10. Lecciones aprendidas", "11. Próximos pasos",
               "Anexo A. Estructura del repositorio", "Anexo B. Comandos útiles"]
     s += [P(t, "vineta") for t in indice]
+    s.append(PageBreak())
+
+    # ---- Resumen en siete pasos
+    s += [P("Resumen en siete pasos", "h1"),
+          P("Una versión corta de todo el proyecto (sirve también como guion para presentarlo)."),
+          tabla([["Paso", "Qué se hizo"],
+                 ["0 · La idea", "Programar y depurar un STM32 desde cualquier lugar: el micro queda en el banco de "
+                                 "laboratorio conectado a una BeagleBoard y se controla desde el navegador de la PC."],
+                 ["1 · Hardware", "BeagleBoard-xM sólo con alimentación y red, sin pantalla ni teclado. Un ST-LINK/V2 "
+                                  "en su USB y cuatro cables al STM32H503: SWDIO, SWCLK, 3,3 V y GND."],
+                 ["2 · Preparar la placa", "La placa tenía Ubuntu 16.04 (2017). Se agrandó la partición y se "
+                                           "compiló en la placa lo que faltaba: Python 3.9, dfu-util y el OpenOCD "
+                                           "de ST."],
+                 ["3 · Acceso remoto", "Tailscale: red privada cifrada. La placa no queda expuesta a internet; "
+                                       "sólo los equipos de la cuenta pueden entrar."],
+                 ["4 · Aplicación web", "Corre en la placa: subir firmware, elegir chip y método, Flashear, "
+                                        "Verificar, Borrar, Reset, con el log de OpenOCD en vivo; monitor serie, "
+                                        "historial y apagado seguro."],
+                 ["5 · Firmware de prueba", "Tres programas cortos para el H503 con LEDs en PA0–PA7: parpadeo, luz "
+                                            "que va y viene y contador binario."],
+                 ["6 · El problema real", "Desde la PC conectaba y desde la placa no: faltaba la masa común (GND) "
+                                          "y la xM tiene poca alimentación en sus USB. Resuelto eso, conectó."],
+                 ["7 · Resultado", "Flashear desde el navegador, iniciar el servidor GDB y, desde la PC, detener el "
+                                   "micro, leer una variable, cambiarla y ver a los LEDs responder."]],
+                [38, 132]),
+          Spacer(1, 6),
+          recuadro("El chip se elige desde un archivo de configuración, así que el banco sirve para cualquier STM32. "
+                   "Todo el código, los scripts y este documento están versionados en GitHub "
+                   "(repositorio privado ElianUlrich/STM32-bench).")]
     s.append(PageBreak())
 
     # ---- 1. La idea
@@ -546,7 +615,8 @@ openocd -s /usr/local/share/openocd/scripts
     s += vinetas([
         "<b>Red</b>: acceso sólo por Tailscale; no se abren puertos en el router. Además la app rechaza "
         "conexiones que no vengan de las redes de Tailscale (100.64.0.0/10, fd7a:115c:a1e0::/48) o de localhost.",
-        "<b>Autenticación</b>: usuario y contraseña; hash scrypt; cookie de sesión firmada, HttpOnly, "
+        "<b>Autenticación</b>: usuario y contraseña; hash scrypt (o PBKDF2-HMAC-SHA256 con 600.000 "
+        "iteraciones si el Python no trae scrypt, como en la placa); cookie de sesión firmada, HttpOnly, "
         "SameSite=Strict, con vencimiento; límite de intentos fallidos por IP. Sin credenciales en el código: "
         "van en /etc/stm32-bench/bench.env (permisos 640).",
         "<b>CSRF</b>: toda petición que modifica algo exige el header X-Bench (un sitio ajeno no puede "
@@ -605,7 +675,7 @@ openocd -s /usr/local/share/openocd/scripts
           bloque_codigo("powershell -ExecutionPolicy Bypass -File scripts\\dev_run.ps1   # http://127.0.0.1:8080"),
           Spacer(1, 6),
           P("Pruebas automáticas", "h2"),
-          P("156 tests con pytest, todos pasando. Cubren:")]
+          P("158 tests con pytest, todos pasando. Cubren:")]
     s += vinetas([
         "Validación de archivos: nombres, extensiones, tamaño, contenido (ELF ARM de 32 bits, Intel HEX), "
         "path traversal y symlinks.",
@@ -618,6 +688,7 @@ openocd -s /usr/local/share/openocd/scripts
         "DFU completo con el simulador.",
         "API: login, redes permitidas, CSRF, trabajos concurrentes (409), bloqueo por servidor GDB activo, "
         "monitor serie, apagado.",
+        "Autenticación: hash scrypt y respaldo PBKDF2 cuando hashlib.scrypt no existe.",
     ])
     s += [P("Pruebas en el navegador", "h2"),
           P("Con la app en modo simulación se recorrieron los flujos principales: flasheo por SWD con log en vivo, "
@@ -718,34 +789,170 @@ sudo tailscale up --hostname=banco-stm32     # se autoriza abriendo el enlace en
             "pydantic-core sólo como paquete precompilado (se verificó que existe para armv7 y Python 3.9 hasta "
             "la versión 2.46.5) y ya no usa piwheels; " + c("build_openocd.sh") + " clona sólo la versión "
             "necesaria y borra el código al terminar. En 16.04 el backend GPIO de BootControl queda pendiente "
-            "(no hay python3-libgpiod y el kernel 4.9 no tiene la API v2 de GPIO).")]
+            "(no hay python3-libgpiod y el kernel 4.9 no tiene la API v2 de GPIO)."),
+          P("8.8 Compilación de OpenOCD", "h2"),
+          P("Con " + c("sudo bash scripts/build_openocd.sh") + " dentro de tmux: dependencias, clon superficial del "
+            "fork de ST (tag openocd-cubeide-v2.2.0), swap temporal de 1 GB y compilación. <b>Tardó 35 minutos</b> "
+            "y quedó instalado " + c("Open On-Chip Debugger 0.12.0+dev-gc8d973b") + ". El script terminó antes de "
+            "la verificación final por un error propio: " + c("openocd --version | head -n 1") + " con "
+            + c("set -o pipefail") + ": " + c("head") + " cierra la tubería, OpenOCD recibe SIGPIPE y el script "
+            "aborta. Se corrigió (" + c("sed -n 1p") + " y " + c("grep ... >/dev/null") + " en lugar de "
+            + c("head") + " y " + c("grep -q") + ") y los .cfg se verificaron a mano."),
+          P("8.9 Dos problemas detectados antes de instalar", "h2"),
+          *vinetas([
+              "<b>Fin de línea de Windows (CRLF).</b> Algunos archivos editados en la PC quedaron con CRLF y bash "
+              "falló con " + c("set: pipefail: invalid option") + ". Se convirtieron en la placa con sed, y desde "
+              "entonces el paquete para la placa se genera con " + c("git archive") + " a partir del repositorio "
+              "(siempre LF, sin archivos temporales).",
+              "<b>hashlib.scrypt no existe con OpenSSL 1.0.2.</b> El Python compilado en la placa no trae scrypt, "
+              "que se usaba para el hash de la contraseña de la web. Se agregó un respaldo con "
+              "PBKDF2-HMAC-SHA256 de 600.000 iteraciones (recomendación de OWASP) y tests para ese caso.",
+          ]),
+          P("8.10 Instalación de la aplicación", "h2"),
+          P(c("sudo bash scripts/install.sh") + " terminó sin errores en unos 15 minutos:"),
+          *vinetas([
+              "python3-libgpiod no existe para 16.04: el script lo avisa y sigue (sólo afecta al backend GPIO).",
+              "pydantic-core 2.46.5 se instaló como paquete precompilado para armv7 (sin compilar Rust); FastAPI "
+              "0.128.8, uvicorn 0.39.0 y starlette 0.49.3; PyYAML se compiló en la placa en segundos.",
+              "sudoers validado con visudo: sólo /sbin/poweroff y /sbin/reboot (en 16.04 están en /sbin).",
+              "Servicio systemd stm32-bench activo y habilitado para arrancar con la placa.",
+          ]),
+          P("La web quedó accesible en <b>http://100.99.235.81:8080</b>, sin avisos de archivos .cfg faltantes. "
+            "La pestaña Sistema mostró: temperatura del procesador de 62 a 65 °C, unos 130 MB de RAM usados de "
+            "483 MB, 1,4 GB de 3,6 GB de disco, y las versiones de OpenOCD y dfu-util."),
+          recuadro("Buena práctica: la contraseña de la web se ingresa sólo cuando el script la pide. Si por error "
+                   "se escribe como comando, queda en el historial de bash; se borra con "
+                   + c("history -c && history -w") + ".", fondo=AMBAR_SUAVE, borde=AMBAR),
+          P("8.11 Primer reinicio de la placa", "h2"),
+          P("Después de apagar y encender, el servicio de la web arrancó solo, pero la placa no era accesible: "
+            + c("ip link show eth0") + " mostraba " + c("NO-CARRIER") + " (el cable de red estaba flojo) y "
+            "Tailscale quedaba en " + c("NoState") + " por no tener red. Con el cable bien conectado bastó "
+            + c("sudo systemctl restart tailscaled") + ". También se observó que la xM genera una dirección "
+            "MAC aleatoria en cada arranque (por ejemplo 2a:62:23:2a:63:0c): queda pendiente fijarla para que "
+            "el router le asigne siempre la misma IP."),
+          PageBreak(),
+          P("8.12 Primera conexión con el STM32H503 (diagnóstico)", "h2"),
+          figura(diagrama_conexion(), "Figura 5 — Cableado del banco: BeagleBoard-xM, ST-LINK/V2 (conector de "
+                 "20 pines) y placa del STM32H503."),
+          P("El programador es un <b>ST-LINK/V2 original</b> (firmware V2J46S7, compatible con el modo dapdirect "
+            "que necesita el H5). Su número de serie es binario, como en todos los V2 viejos; la app lo convierte "
+            "a hexadecimal y OpenOCD lo aceptó con " + c("adapter serial") + ". La primera conexión falló y se "
+            "diagnosticó por pasos:"),
+          tabla([["Prueba", "Resultado", "Conclusión"],
+                 ["Reset desde la web (4000 kHz)", "ST-Link encontrado y 3,21 V, pero “init mode failed (unable "
+                  "to connect to the target)”", "Programador y alimentación del micro bien; falla el SWD"],
+                 ["Por SSH a 200 kHz y conectando bajo reset", "Mismo error", "No es la velocidad"],
+                 ["ST-Link en la PC con STM32CubeProgrammer", "Conecta: STM32H50x, ID 0x474, 128 KB, AP 1",
+                  "El cableado SWD y el chip están bien"],
+                 ["ST-Link en la PC con el OpenOCD de CubeIDE (con el .cfg de CubeIDE y con el de la placa)",
+                  "“Examination succeed” en los dos casos", "La configuración de OpenOCD no es el problema"],
+                 ["De vuelta en la placa, con cable de GND", "Avanza más: “Fail reading CTRL/STAT register”",
+                  "Faltaba la masa común"],
+                 ["dmesg en la placa", "El Ethernet se cae y vuelve (eth0 link down / link up)",
+                  "Caídas de alimentación en el LAN9514, el chip que también alimenta los USB"],
+                 ["Menos carga en los USB de la placa", "“Examination succeed” y Reset enviado",
+                  "Conexión SWD funcionando desde la BeagleBoard"]],
+                [52, 62, 56]),
+          Spacer(1, 6),
+          P("<b>Causa:</b> la combinación de la falta de un cable de masa entre el ST-Link y la placa del micro "
+            "(desde la PC funcionaba porque todo compartía la masa de sus USB) y la alimentación justa de los USB "
+            "de la xM. Queda para revisar la capacidad de la fuente de 5 V de la placa y, si hace falta, usar un "
+            "hub USB con fuente propia. La velocidad SWD del H503 se bajó a 1000 kHz en "
+            "/etc/stm32-bench/chips.yaml, un valor más tolerante con cables largos."),
+          P("Queda un aviso no bloqueante: al conectar, el script " + c("target/stm32h5x.cfg") + " de esta versión "
+            "de OpenOCD intenta configurar DBGMCU (depuración en bajo consumo y watchdogs detenidos) y esa "
+            "escritura falla. No afecta a los programas de prueba; se corregirá usando el archivo de CubeIDE, "
+            "que conecta sin ese error."),
+          Spacer(1, 8)]
+
+    # ---- 9. Firmware de prueba
+    s += [P("9. Firmware de prueba para el STM32H503", "h1"),
+          P("Para probar el banco se escribieron tres programas mínimos en C, sin HAL, para una placa con el "
+            "STM32H503CBT6 y LEDs en PA0–PA7. Están en " + c("firmware/h503_leds/") + " del repositorio, ya "
+            "compilados (.elf, .hex y .bin)."),
+          tabla([["Programa", "Qué hace", "Qué prueba del banco"],
+                 ["01_blink_todos", "Enciende los LEDs de a uno (PA0 → PA7) y después parpadean todos a 1 Hz",
+                  "Flashear, Verificar y el orden de los LEDs"],
+                 ["02_auto_fantastico", "Una luz que va y viene de PA0 a PA7",
+                  "Halt congela la luz, Run la reanuda, Reset reinicia; variable en .data para la conversión DFU"],
+                 ["03_contador_binario", "Cuenta de 0 a 255 en binario cada 250 ms",
+                  "Servidor GDB: leer y modificar la variable contador, breakpoints"]],
+                [36, 66, 68]),
+          Spacer(1, 6),
+          *vinetas([
+              "<b>Registros</b>: direcciones tomadas del encabezado oficial de ST (stm32h503xx.h): RCC en "
+              "0x44020C00 (AHB2ENR en +0x8C, bit 0 = GPIOA) y GPIOA en 0x42020000. Sólo se tocan PA0–PA7; PA13 y "
+              "PA14 quedan libres para el SWD.",
+              "<b>Reloj</b>: el código lee el divisor HSIDIV del HSI de reset para calcular los tiempos, así "
+              "funciona sea cual sea su valor inicial. Base de tiempo de 1 ms con SysTick.",
+              "<b>Memoria</b>: flash de 128 KB en 0x08000000 y sólo SRAM1 (16 KB), para no depender de que SRAM2 "
+              "esté habilitada tras el reset. Arranque y tabla de vectores (16 + 134 entradas) propios, en C.",
+              "<b>Compilación</b>: con el GCC 13.3 incluido en STM32CubeIDE, sin advertencias; unos 920 bytes cada "
+              "programa. La conversión .elf/.hex → .bin de la app coincide byte a byte con la de objcopy.",
+              "<b>Polaridad</b>: por defecto el LED enciende con el pin en alto; si es al revés se compila con "
+              + c("make DEFS=-DLED_ACTIVO_ALTO=0") + ".",
+          ]),
+          P("Depuración remota con el contador binario", "h2"),
+          P("Con el programa flasheado y el servidor GDB iniciado desde la web, en la PC:"),
+          bloque_codigo("""
+arm-none-eabi-gdb 03_contador_binario.elf
+(gdb) target extended-remote 100.99.235.81:3333
+(gdb) monitor halt                 # los LEDs se congelan
+(gdb) print contador               # coincide con los LEDs
+(gdb) set var contador = 0xAA      # LEDs 10101010
+(gdb) break contador_paso
+(gdb) continue
+""")]
     s.append(PageBreak())
 
-    # ---- 9. Próximos pasos
-    s += [P("9. Próximos pasos", "h1"),
-          tabla([["Paso", "Comando / acción", "Duración estimada"],
-                 ["Compilar OpenOCD (fork de ST)", "sudo bash scripts/build_openocd.sh", "45–90 min"],
-                 ["Instalar la app", "sudo bash scripts/install.sh (pide usuario y contraseña de la web)",
-                  "10–20 min"],
-                 ["Primera prueba", "Nucleo por USB del ST-Link; lsusb | grep 0483; flashear desde la web",
-                  "—"],
-                 ["GDB remoto", "arm-none-eabi-gdb → target extended-remote &lt;IP&gt;:3333", "—"]],
-                [42, 98, 30]),
+    # ---- 10. Lecciones aprendidas
+    s += [P("10. Lecciones aprendidas", "h1")]
+    s += vinetas([
+        "<b>Verificar las versiones antes de diseñar sobre ellas.</b> La placa tenía Ubuntu 16.04 con Python 3.5 "
+        "y OpenSSL 1.0.2: hubo que compilar Python 3.9 y reemplazar scrypt por PBKDF2.",
+        "<b>Windows y Linux no escriben igual los fines de línea.</b> Un script con CRLF no corre en bash. "
+        "Solución: .gitattributes con eol=lf y paquetes generados con git archive.",
+        "<b>set -o pipefail tiene trampas.</b> head o grep -q cierran la tubería antes de tiempo y el comando "
+        "anterior termina con SIGPIPE, lo que aborta el script.",
+        "<b>Leer bien la tensión del target no prueba que el SWD funcione.</b> El pin VAPP sólo mide; SWDIO y "
+        "SWCLK necesitan una masa común con el programador.",
+        "<b>Aislar el problema cambiando una sola cosa.</b> Probar el mismo ST-Link y los mismos cables desde la "
+        "PC separó en minutos el cableado, la configuración de OpenOCD y la placa.",
+        "<b>La BeagleBoard-xM tiene particularidades de hardware:</b> el Ethernet y los USB salen del mismo chip "
+        "(LAN9514) y comparten alimentación; la MAC es aleatoria en cada arranque; no tiene pila para el reloj.",
+        "<b>El STM32H5 necesita el modo dapdirect (stlink-dap)</b>, porque su CPU está en el AP 1; un ST-LINK/V2 "
+        "original con firmware reciente lo soporta.",
+        "<b>Documentar mientras se trabaja</b> (este documento se genera desde un script y se actualiza en cada "
+        "paso) evita reconstruir de memoria lo que pasó.",
+    ])
+
+    # ---- 11. Próximos pasos
+    s += [P("11. Próximos pasos", "h1"),
+          tabla([["Paso", "Detalle"],
+                 ["Flasheo y GDB (en curso)", "Flashear 01_blink_todos y 03_contador_binario desde la web; sesión "
+                                              "GDB remota; probar Halt, Run y Reset con 02_auto_fantastico."],
+                 ["Alimentación", "Confirmar que la fuente de la xM sea de 5 V y al menos 2,5 A; si el SWD vuelve "
+                                  "a fallar, usar un hub USB con fuente propia para el ST-Link."],
+                 ["Script del H5", "Usar el stm32h5x.cfg de CubeIDE para eliminar el error de examine-end "
+                                   "(configuración de DBGMCU)."],
+                 ["MAC fija", "Fijar la dirección MAC de eth0 para que la IP de la red local no cambie."],
+                 ["Despliegue por git", "Clonar el repositorio desde GitHub en la placa (con un token de sólo "
+                                        "lectura) para actualizar con git pull."],
+                 ["USB DFU", "Probar el bootloader USB del H503 (backend manual) con .bin, .hex y .elf."],
+                 ["microSD más grande", "Con 8 GB o más: partición de datos y sistema en solo lectura."]],
+                [38, 132]),
           Spacer(1, 6),
           P("Verificaciones pendientes en hardware", "h2")]
     s += vinetas([
-        "Compilación de OpenOCD en 16.04 (gcc 5.4) y presencia de stm32h5x.cfg, stm32h7x.cfg y stlink-dap.cfg.",
-        "Instalación de dependencias Python sin compilar en armv7; arranque del servicio systemd 229.",
-        "Operaciones reales en STM32H503 (stlink-dap) y STM32H723: borrado genérico, verify_image, halt/run.",
-        "Selección por adapter serial con dos ST-Link; números de serie de ST-Link/V2 viejos.",
-        "Servidor GDB en la IP de tailscale0; conexión desde GDB y VS Code.",
-        "DFU real: salida de dfu-util -l, :leave, verificación con -U y mass-erase sin -D.",
-        "Monitor serie con el VCP de la Nucleo; datos del sistema (temperatura del DM3730); apagar/reiniciar.",
-        "Consumo de RAM/CPU de la app en la xM.",
+        "Flashear, verificar, borrar, halt y run en el STM32H503 y, más adelante, en el STM32H723.",
+        "Servidor GDB en la IP de tailscale0; conexión desde arm-none-eabi-gdb y VS Code (Cortex-Debug).",
+        "DFU real: dfu-util -l, :leave, verificación con -U y mass-erase sin -D.",
+        "Monitor serie con un VCP; apagar y reiniciar desde la web.",
+        "Dos ST-Link conectados a la vez (selección por número de serie).",
     ])
 
     # ---- Anexos
-    s += [P("Anexo A. Estructura del repositorio", "h1"),
+    s += [KeepTogether([P("Anexo A. Estructura del repositorio", "h1"),
           bloque_codigo("""
 app/                 backend (FastAPI)
   main.py            aplicación, middleware de seguridad, sesiones, estáticos
@@ -767,9 +974,10 @@ config/              chips.yaml, bench.yaml, bench.example.env
 scripts/             build_openocd.sh, prepare_ubuntu1604.sh, install.sh, hash_password.py,
                      dev_run.ps1/.sh, simuladores de OpenOCD y dfu-util
 deploy/              unidad systemd, reglas udev, plantilla de sudoers
+firmware/h503_leds/  firmware de prueba para STM32H503 (fuentes, Makefile, compilados)
 docs/                este documento y su generador
-tests/               156 tests (pytest)
-"""),
+tests/               158 tests (pytest)
+""")]),
           KeepTogether([P("Anexo B. Comandos útiles", "h1"),
           bloque_codigo("""
 ssh ubuntu@100.99.235.81             # entrar a la placa por Tailscale (o ubuntu@banco-stm32)
@@ -779,6 +987,12 @@ journalctl -u stm32-bench -f         # log del servicio
 sudo systemctl restart stm32-bench   # reiniciar tras editar /etc/stm32-bench/*.yaml
 lsusb | grep 0483                    # ST-Link / DFU conectados
 df -h / ; free -m                    # espacio y memoria
+ip link show eth0                    # NO-CARRIER = cable de red desconectado
+sudo systemctl restart tailscaled    # reconectar Tailscale
+dmesg | tail -25                     # mensajes del kernel (USB, red)
+openocd -f interface/stlink-dap.cfg -c "transport select dapdirect_swd" -f target/stm32h5x.cfg \\
+        -c "adapter speed 1000" -c init -c "reset halt" -c shutdown     # prueba SWD manual
+git archive --format=tar.gz -o stm32-bench.tgz HEAD   # (en la PC) paquete limpio para la placa
 """)]),
           ]
     return s
