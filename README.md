@@ -60,7 +60,8 @@ La app puede ejecutar comandos en la placa, así que:
   Así, ni siquiera alguien en la LAN del laboratorio puede entrar.
 - **Login** con usuario y contraseña. La contraseña se guarda como hash **scrypt** (biblioteca
   estándar de Python, KDF recomendado por OWASP; se eligió en lugar de bcrypt/argon2 para no
-  compilar nada en armhf). La sesión es una cookie firmada `HttpOnly`, `SameSite=Strict`, con
+  compilar nada en armhf). Si Python se compiló con OpenSSL < 1.1 (Ubuntu 16.04), `hashlib.scrypt`
+  no existe y se usa **PBKDF2-HMAC-SHA256 con 600.000 iteraciones** (el login tarda ~2-3 s en la xM). La sesión es una cookie firmada `HttpOnly`, `SameSite=Strict`, con
   vencimiento. Hay límite de intentos fallidos por IP.
 - **Nada de credenciales en el código**: van en `/etc/stm32-bench/bench.env` (permisos 640).
 - Los pedidos que modifican algo exigen el header `X-Bench` (protección CSRF adicional).

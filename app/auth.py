@@ -1,10 +1,15 @@
-"""Autenticación: hash de contraseña con scrypt (biblioteca estándar) y sesión.
+"""Autenticación: hash de contraseña (biblioteca estándar) y sesión.
 
-Formato del hash (sin '$' para no chocar con EnvironmentFile de systemd ni
-con shells):  scrypt:<n>:<r>:<p>:<salt_b64>:<hash_b64>
+Formatos del hash (sin '$' para no chocar con EnvironmentFile de systemd ni
+con shells):
+    scrypt:<n>:<r>:<p>:<salt_b64>:<hash_b64>
+    pbkdf2_sha256:<iteraciones>:<salt_b64>:<hash_b64>
 
 scrypt es un KDF resistente a GPU recomendado por OWASP, igual que bcrypt o
-argon2, pero viene en hashlib: no hay que compilar nada en la placa armhf.
+argon2, y viene en hashlib: no hay que compilar nada en la placa armhf. Pero
+hashlib.scrypt solo existe si Python se compiló con OpenSSL >= 1.1; en Ubuntu
+16.04 (OpenSSL 1.0.2) se usa PBKDF2-HMAC-SHA256 con 600.000 iteraciones
+(recomendación de OWASP para PBKDF2). Se verifican los dos formatos.
 """
 from __future__ import annotations
 
@@ -21,6 +26,8 @@ SCRYPT_R = 8
 SCRYPT_P = 1
 KEY_LEN = 32
 MAXMEM = 64 * 1024 * 1024
+PBKDF2_ITERATIONS = 600_000
+HAS_SCRYPT = hasattr(hashlib, "scrypt")
 
 
 def _b64e(data: bytes) -> str:
@@ -31,25 +38,41 @@ def _b64d(text: str) -> bytes:
     return base64.urlsafe_b64decode(text + "=" * (-len(text) % 4))
 
 
-def hash_password(password: str, n: int = SCRYPT_N, r: int = SCRYPT_R, p: int = SCRYPT_P) -> str:
+def hash_password(password: str, scheme: Optional[str] = None) -> str:
+    """Hash con scrypt si está disponible; si no, PBKDF2-HMAC-SHA256."""
     if not password:
         raise ValueError("La contraseña no puede estar vacía")
+    scheme = scheme or ("scrypt" if HAS_SCRYPT else "pbkdf2_sha256")
     salt = secrets.token_bytes(16)
-    digest = hashlib.scrypt(password.encode("utf-8"), salt=salt, n=n, r=r, p=p,
-                            dklen=KEY_LEN, maxmem=MAXMEM)
-    return f"scrypt:{n}:{r}:{p}:{_b64e(salt)}:{_b64e(digest)}"
+    if scheme == "scrypt":
+        digest = hashlib.scrypt(password.encode("utf-8"), salt=salt, n=SCRYPT_N, r=SCRYPT_R, p=SCRYPT_P,
+                                dklen=KEY_LEN, maxmem=MAXMEM)
+        return f"scrypt:{SCRYPT_N}:{SCRYPT_R}:{SCRYPT_P}:{_b64e(salt)}:{_b64e(digest)}"
+    if scheme == "pbkdf2_sha256":
+        digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, PBKDF2_ITERATIONS, KEY_LEN)
+        return f"pbkdf2_sha256:{PBKDF2_ITERATIONS}:{_b64e(salt)}:{_b64e(digest)}"
+    raise ValueError(f"Esquema de hash desconocido: {scheme}")
 
 
 def verify_password(password: str, encoded: Optional[str]) -> bool:
     if not encoded or not password:
         return False
     try:
-        scheme, n, r, p, salt_b64, hash_b64 = encoded.split(":")
-        if scheme != "scrypt":
+        parts = encoded.split(":")
+        if parts[0] == "scrypt" and len(parts) == 6:
+            if not HAS_SCRYPT:
+                return False   # este Python no puede verificar scrypt (OpenSSL < 1.1)
+            _, n, r, p, salt_b64, hash_b64 = parts
+            expected = _b64d(hash_b64)
+            digest = hashlib.scrypt(password.encode("utf-8"), salt=_b64d(salt_b64), n=int(n), r=int(r),
+                                    p=int(p), dklen=len(expected), maxmem=MAXMEM)
+        elif parts[0] == "pbkdf2_sha256" and len(parts) == 4:
+            _, iterations, salt_b64, hash_b64 = parts
+            expected = _b64d(hash_b64)
+            digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), _b64d(salt_b64),
+                                         int(iterations), len(expected))
+        else:
             return False
-        expected = _b64d(hash_b64)
-        digest = hashlib.scrypt(password.encode("utf-8"), salt=_b64d(salt_b64), n=int(n), r=int(r),
-                                p=int(p), dklen=len(expected), maxmem=MAXMEM)
     except (ValueError, TypeError):
         return False
     return hmac.compare_digest(digest, expected)

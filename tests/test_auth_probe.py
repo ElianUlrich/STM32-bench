@@ -12,6 +12,26 @@ def test_hash_roundtrip():
     assert hash_password("secreto") != encoded   # sal aleatoria
 
 
+def test_pbkdf2_fallback_without_scrypt(monkeypatch):
+    """Python con OpenSSL 1.0.2 (Ubuntu 16.04) no tiene hashlib.scrypt."""
+    import app.auth as auth
+    monkeypatch.setattr(auth, "HAS_SCRYPT", False)
+    monkeypatch.setattr(auth, "PBKDF2_ITERATIONS", 1000)   # rápido para el test
+    encoded = auth.hash_password("secreto")
+    assert encoded.startswith("pbkdf2_sha256:1000:") and "$" not in encoded
+    assert auth.verify_password("secreto", encoded)
+    assert not auth.verify_password("otro", encoded)
+    # Un hash scrypt no se puede verificar sin scrypt: se rechaza, no revienta.
+    assert not auth.verify_password("secreto", "scrypt:16384:8:1:c2FsdA:aGFzaA")
+
+
+def test_pbkdf2_explicit_scheme():
+    import app.auth as auth
+    encoded = auth.hash_password("clave", scheme="pbkdf2_sha256")
+    assert encoded.split(":")[1] == str(auth.PBKDF2_ITERATIONS)
+    assert auth.verify_password("clave", encoded)
+
+
 def test_verify_garbage():
     assert not verify_password("x", None)
     assert not verify_password("x", "no-es-un-hash")
