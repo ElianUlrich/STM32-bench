@@ -60,7 +60,7 @@ if [ "$FORCE" != "1" ] && [ -x "$PREFIX/bin/openocd" ] && [ -f "$STAMP" ] \
    && [ "$(cat "$STAMP")" = "$COMMIT" ]; then
     log "OpenOCD $OPENOCD_REF ya está instalado (commit $COMMIT). Nada que hacer."
     log "Usá FORCE=1 para recompilar."
-    "$PREFIX/bin/openocd" --version 2>&1 | head -n 1
+    "$PREFIX/bin/openocd" --version 2>&1 | sed -n 1p   # sed lee todo: sin SIGPIPE con pipefail
     exit 0
 fi
 
@@ -109,7 +109,7 @@ log "bootstrap..."
 
 CONF_ARGS=(--prefix="$PREFIX" --enable-stlink --disable-werror --disable-doxygen-html --disable-doxygen-pdf)
 # Versiones nuevas quitaron el jimtcl interno: en ese caso hace falta libjim-dev.
-if ./configure --help | grep -q -- "--disable-internal-jimtcl"; then
+if ./configure --help | grep -- "--disable-internal-jimtcl" >/dev/null; then
     CONF_ARGS+=(--enable-internal-jimtcl)
 else
     log "Esta versión usa jimtcl del sistema: instalando libjim-dev..."
@@ -134,7 +134,7 @@ fi
 
 # --- Verificación --------------------------------------------------------------
 log "Verificando la instalación:"
-"$PREFIX/bin/openocd" --version 2>&1 | head -n 1
+"$PREFIX/bin/openocd" --version 2>&1 | sed -n 1p   # sed lee todo: sin SIGPIPE con pipefail
 SCRIPTS="$PREFIX/share/openocd/scripts"
 missing=0
 for cfg in interface/stlink.cfg interface/stlink-dap.cfg target/stm32h5x.cfg target/stm32h7x.cfg \
@@ -146,7 +146,7 @@ for cfg in interface/stlink.cfg interface/stlink-dap.cfg target/stm32h5x.cfg tar
         missing=1
     fi
 done
-if "$PREFIX/bin/openocd" -c "help adapter serial" -c shutdown 2>&1 | grep -q "adapter serial"; then
+if "$PREFIX/bin/openocd" -c "help adapter serial" -c shutdown 2>&1 | grep "adapter serial" >/dev/null; then
     echo "  ok      comando 'adapter serial'"
 fi
 [ "$missing" -eq 0 ] || warn "Faltan algunos .cfg: la app avisará en la interfaz."

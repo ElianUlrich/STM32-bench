@@ -93,7 +93,7 @@ fi
 "$PY_BIN" --version
 
 # --- dfu-util 0.11 ------------------------------------------------------------
-if [ "$FORCE" != "1" ] && /usr/local/bin/dfu-util -V 2>/dev/null | grep -q "dfu-util $DFU_VERSION"; then
+if [ "$FORCE" != "1" ] && /usr/local/bin/dfu-util -V 2>/dev/null | grep "dfu-util $DFU_VERSION" >/dev/null; then
     log "dfu-util $DFU_VERSION ya está instalado en /usr/local."
 else
     log "Compilando dfu-util $DFU_VERSION..."
@@ -107,7 +107,7 @@ else
     make -j"$JOBS" >/dev/null
     make install >/dev/null
 fi
-/usr/local/bin/dfu-util -V | head -n 1
+/usr/local/bin/dfu-util -V | sed -n 1p   # sed lee todo: sin SIGPIPE con pipefail
 if dpkg -s dfu-util >/dev/null 2>&1; then
     warn "También está el dfu-util de apt (/usr/bin). La app usa el primero del PATH: /usr/local/bin."
 fi
