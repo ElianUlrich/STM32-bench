@@ -5,3 +5,6 @@ __pycache__/
 dev-data/
 *.env
 !config/bench.example.env
+
+# Paquete para copiar a la placa (git archive)
+*.tgz
