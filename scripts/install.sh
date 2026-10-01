@@ -5,12 +5,12 @@
 #   sudo scripts/install.sh
 #
 # Hace, de forma idempotente (se puede volver a correr para actualizar):
-#   1. Dependencias del sistema (python3-venv, dfu-util, libgpiod...).
+#   1. Dependencias del sistema (python3-venv, dfu-util, avrdude, libgpiod...).
 #   2. Usuario de servicio sin privilegios (stm32bench) y grupos.
 #   3. Copia de la app a /opt/stm32-bench y venv con las dependencias Python.
 #   4. Directorios: /etc/stm32-bench, /var/lib/stm32-bench, proyectos.
 #   5. /etc/stm32-bench/bench.env con usuario, hash de contraseña y clave.
-#   6. Reglas udev (ST-Link, DFU, gpiochip).
+#   6. Reglas udev (ST-Link, DFU, USBasp/USBtiny, gpiochip).
 #   7. /etc/sudoers.d/stm32-bench (solo poweroff/reboot), validado con visudo.
 #   8. Servicio systemd stm32-bench (arranque automático).
 #
@@ -50,6 +50,9 @@ apt-get install -y --no-install-recommends \
     python3 ca-certificates rsync sudo usbutils libusb-1.0-0 libhidapi-hidraw0
 # dfu-util: el de /usr/local (compilado por prepare_ubuntu1604.sh) tiene prioridad.
 [ -x /usr/local/bin/dfu-util ] || apt-get install -y --no-install-recommends dfu-util
+# avrdude: Arduino / AVR (bootloader serie o programador ISP).
+apt-get install -y --no-install-recommends avrdude \
+    || warn "No se pudo instalar avrdude (solo necesario para placas Arduino / AVR)."
 # libgpiod solo hace falta para el backend "gpio" de BootControl.
 apt-get install -y --no-install-recommends python3-libgpiod gpiod \
     || warn "No se pudo instalar python3-libgpiod (solo necesario para boot_control: gpio)."
@@ -108,6 +111,15 @@ fi
 "$APP_DIR/.venv/bin/python" -m pip install --disable-pip-version-check -q --upgrade pip
 log "Instalando dependencias de Python (puede tardar unos minutos)..."
 "$APP_DIR/.venv/bin/pip" install "${PIP_ARGS[@]}" -r "$APP_DIR/requirements.txt"
+
+# esptool (ESP32 / ESP8266). Se instala --no-deps porque sus dependencias
+# "cryptography" (solo la usa espsecure) y bitstring 4 (usa bitarray, en C) no
+# tienen wheel armv7l para esta glibc. bitstring 3.1.9 es Python puro.
+log "Instalando esptool..."
+"$APP_DIR/.venv/bin/pip" install "${PIP_ARGS[@]}" "bitstring==3.1.9" "ecdsa>=0.16" "reedsolo>=1.5.3,<1.8" \
+    && "$APP_DIR/.venv/bin/pip" install "${PIP_ARGS[@]}" --no-deps "esptool==4.12.0" \
+    && "$APP_DIR/.venv/bin/python" -m esptool version >/dev/null \
+    || warn "No se pudo instalar esptool (solo necesario para placas ESP)."
 
 # --- 4. Directorios ------------------------------------------------------------
 log "Creando directorios..."

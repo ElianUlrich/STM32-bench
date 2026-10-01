@@ -13,6 +13,7 @@ from . import files as fileops
 from . import system
 from .auth import LoginLimiter, check_credentials
 from .bench import Bench, JobRequest
+from .compat import check_file_for_chip
 
 router = APIRouter(prefix="/api")
 limiter = LoginLimiter()
@@ -81,26 +82,61 @@ async def config(request: Request, _: str = Depends(require_user)) -> Dict[str, 
 async def list_files(request: Request, _: str = Depends(require_user)) -> Dict[str, Any]:
     bench = get_bench(request)
     projects = await asyncio.get_running_loop().run_in_executor(
-        None, fileops.scan_projects, bench.settings.projects_dir, bench.cfg.scan_max_depth)
+        None, fileops.scan_projects, bench.settings.projects_dir, bench.cfg.scan_max_depth,
+        bench.meta.all())
     return {"projects_dir": str(bench.settings.projects_dir), "projects": projects}
 
 
 @router.post("/files/upload")
 async def upload(request: Request, file: UploadFile = File(...), project: str = Form("general"),
-                 _: str = Depends(require_user)) -> Dict[str, Any]:
+                 target: str = Form(...), _: str = Depends(require_user)) -> Dict[str, Any]:
+    """Sube un binario y lo asigna a su placa (obligatorio): el contenido tiene
+    que ser compatible con esa placa o se rechaza."""
     bench = get_bench(request)
+    chip = bench.chip(target)
     max_bytes = bench.cfg.max_upload_mb * 1024 * 1024
+    filename = file.filename or ""
+    result: Dict[str, Any] = {}
+
+    def validator(tmp):
+        result["compat"] = check_file_for_chip(tmp, chip, filename=filename)
+
     saved = await asyncio.get_running_loop().run_in_executor(
-        None, fileops.save_upload, bench.settings.projects_dir, project, file.filename or "",
-        file.file, max_bytes)
+        None, lambda: fileops.save_upload(bench.settings.projects_dir, project, filename,
+                                          file.file, max_bytes, validator=validator))
+    bench.meta.assign(saved.rel_path, chip.id)
     bench.bus.publish({"type": "files_changed"})
-    return {"ok": True, "path": saved.rel_path, "size": saved.size}
+    compat = result.get("compat")
+    return {"ok": True, "path": saved.rel_path, "size": saved.size, "target": chip.id,
+            "warnings": compat.warnings if compat else []}
+
+
+class TargetBody(BaseModel):
+    path: str
+    target: Optional[str] = None
+
+
+@router.put("/files/target")
+async def set_file_target(body: TargetBody, request: Request, _: str = Depends(require_user)) -> Dict[str, Any]:
+    """Asigna (o quita, con target=null) la placa de un archivo existente, p. ej. de Syncthing."""
+    bench = get_bench(request)
+    if body.target:
+        compat = await asyncio.get_running_loop().run_in_executor(
+            None, bench.assign_target, body.path, body.target)
+        warnings = compat.warnings
+    else:
+        fileops.resolve_in_root(bench.settings.projects_dir, body.path)
+        bench.meta.forget(body.path)
+        warnings = []
+    bench.bus.publish({"type": "files_changed"})
+    return {"ok": True, "path": body.path, "target": body.target, "warnings": warnings}
 
 
 @router.delete("/files")
 async def delete_file(request: Request, path: str, _: str = Depends(require_user)) -> Dict[str, Any]:
     bench = get_bench(request)
     fileops.delete_upload(bench.settings.projects_dir, path)
+    bench.meta.forget(path)
     bench.bus.publish({"type": "files_changed"})
     return {"ok": True}
 
@@ -118,7 +154,8 @@ async def probes(request: Request, dfu: bool = True, _: str = Depends(require_us
             dfu_devices = [d.to_public() for d in await bench.list_dfu()]
         except Exception as exc:
             dfu_error = str(exc)
-    return {"stlinks": stlinks, "dfu": dfu_devices, "dfu_error": dfu_error}
+    ports = await asyncio.get_running_loop().run_in_executor(None, bench.serial.list_ports)
+    return {"stlinks": stlinks, "dfu": dfu_devices, "dfu_error": dfu_error, "serial_ports": ports}
 
 
 # ----------------------------------------------------------------------- trabajos
@@ -132,6 +169,7 @@ class JobBody(BaseModel):
     address: Optional[str] = None
     probe_serial: Optional[str] = None
     dfu_serial: Optional[str] = None
+    serial_port: Optional[str] = None
     leave: bool = True
     stop_gdb: bool = False
 

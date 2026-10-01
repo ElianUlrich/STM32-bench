@@ -14,6 +14,9 @@ import sys
 import time
 
 KNOWN_SERIALS = {"066DFF485550755187121832", "002F00283232511639353236"}
+# ID (DBGMCU_IDCODE & 0xFFF) del chip simulado según el .cfg de target.
+IDS = {"stm32h5x": 0x474, "stm32h7x": 0x483, "stm32f1x": 0x410, "stm32f4x": 0x431,
+       "stm32l4x": 0x415, "stm32g0x": 0x460, "stm32g4x": 0x469}
 CORES = {
     "stm32h7x": "Cortex-M7 r1p2", "stm32h5x": "Cortex-M33 r0p4", "stm32f1x": "Cortex-M3 r1p1",
     "stm32f4x": "Cortex-M4 r0p1", "stm32l4x": "Cortex-M4 r0p1", "stm32g0x": "Cortex-M0+ r0p1",
@@ -69,6 +72,20 @@ def main(argv):
             return 0
 
     for cmd in cmds:
+        if "read_memory" in cmd:
+            # Verificación del ID del chip (DBGMCU_IDCODE).
+            connected = int(os.environ.get("BENCH_MOCK_STM32_ID", "0") or "0", 0) or IDS.get(family, 0x000)
+            expected = re.search(r"!= (0x[0-9A-Fa-f]+)", cmd) or re.search(r"\$_id (0x[0-9A-Fa-f]+)\]", cmd)
+            expected_id = int(expected.group(1), 16) if expected else connected
+            if "shutdown error" in cmd:
+                if connected != expected_id:
+                    out(f"CHIP EQUIVOCADO: se esperaba el ID 0x{expected_id:03X} y el chip conectado tiene "
+                        f"0x{connected:03X}. No se toca la flash.")
+                    return 1
+                out(f"Chip verificado: ID 0x{connected:03X}")
+            else:
+                out(f"ID del chip conectado: 0x{connected:03X} (esperado para esta placa: 0x{expected_id:03X})")
+            continue
         if cmd.startswith("program "):
             path = re.search(r"\{(.*?)\}", cmd).group(1)
             if not os.path.isfile(path):

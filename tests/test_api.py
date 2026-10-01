@@ -58,14 +58,16 @@ def test_config(client):
 
 def test_upload_scan_delete(client):
     files = {"file": ("mi fw.elf", demo_images()["elf"], "application/octet-stream")}
-    r = client.post("/api/files/upload", files=files, data={"project": "banco"})
+    r = client.post("/api/files/upload", files=files, data={"project": "banco", "target": "stm32h503cb"})
     assert r.status_code == 200, r.text
     path = r.json()["path"]
     listing = client.get("/api/files").json()["projects"]
     assert any(f["path"] == path for p in listing for f in p["files"])
-    r = client.post("/api/files/upload", files={"file": ("../evil.elf", b"x", "application/octet-stream")})
+    r = client.post("/api/files/upload", files={"file": ("../evil.elf", b"x", "application/octet-stream")},
+                    data={"target": "stm32h503cb"})
     assert r.status_code == 400
-    r = client.post("/api/files/upload", files={"file": ("x.exe", b"x", "application/octet-stream")})
+    r = client.post("/api/files/upload", files={"file": ("x.exe", b"x", "application/octet-stream")},
+                    data={"target": "stm32h503cb"})
     assert r.status_code == 400
     assert client.delete("/api/files", params={"path": "demo-blink/Debug/demo-blink.bin"}).status_code == 400
     assert client.delete("/api/files", params={"path": path}).status_code == 200
@@ -102,7 +104,7 @@ def test_job_validation(client):
 
 
 def test_flash_busy_and_history(client):
-    body = {"action": "flash", "chip": "stm32h723vg", "probe_serial": SERIAL,
+    body = {"action": "flash", "chip": "stm32h503cb", "probe_serial": SERIAL,
             "file": "demo-blink/Debug/demo-blink.elf"}
     r = client.post("/api/jobs", json=body)
     assert r.status_code == 202
@@ -113,15 +115,15 @@ def test_flash_busy_and_history(client):
 
 
 def test_gdb_blocks_flash_until_confirmed(client):
-    r = client.post("/api/gdb/start", json={"chip": "stm32h723vg", "probe_serial": SERIAL})
+    r = client.post("/api/gdb/start", json={"chip": "stm32h503cb", "probe_serial": SERIAL})
     assert r.status_code == 200, r.text
     status = r.json()
     assert status["state"] == "listening" and status["connect"].endswith(":3333")
-    body = {"action": "flash", "chip": "stm32h723vg", "probe_serial": SERIAL,
+    body = {"action": "flash", "chip": "stm32h503cb", "probe_serial": SERIAL,
             "file": "demo-blink/Debug/demo-blink.hex"}
     r = client.post("/api/jobs", json=body)
     assert r.status_code == 409 and r.json()["code"] == "gdb_active"
-    r = client.post("/api/gdb/start", json={"chip": "stm32h723vg", "probe_serial": SERIAL})
+    r = client.post("/api/gdb/start", json={"chip": "stm32h503cb", "probe_serial": SERIAL})
     assert r.status_code == 400   # ya está en marcha
     r = client.post("/api/jobs", json=dict(body, stop_gdb=True))
     assert r.status_code == 202

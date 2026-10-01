@@ -12,6 +12,7 @@ const state = {
   chip: null,
   method: "swd",
   stlinks: [],
+  serialPorts: [],
   dfu: [],
   dfuError: null,
   file: null,
@@ -162,8 +163,35 @@ async function copyText(text) {
 
 // ------------------------------------------------------------ configuración
 
+function chipById(id) {
+  return (state.config && state.config.chips.find((c) => c.id === id)) || null;
+}
+
 function currentChip() {
-  return state.config.chips.find((c) => c.id === state.chip) || null;
+  return chipById(state.chip);
+}
+
+// Etiqueta del botón de cada método.
+function methodLabel(chip, method) {
+  if (method === "swd") return "ST-Link (SWD)";
+  if (method === "dfu") return "USB DFU";
+  if (method === "esptool") return "Puerto serie (esptool)";
+  if (method === "avrdude") return chip && chip.avrdude && chip.avrdude.isp ? "Programador ISP (avrdude)" : "Bootloader serie (avrdude)";
+  return method;
+}
+
+// <select> de placas agrupadas por familia (STM32, Espressif, Arduino).
+function chipOptions(includeEmpty) {
+  const groups = new Map();
+  for (const c of state.config.chips) {
+    if (!groups.has(c.group)) groups.set(c.group, []);
+    groups.get(c.group).push(c);
+  }
+  const nodes = includeEmpty ? [el("option", { value: "" }, includeEmpty)] : [];
+  for (const [group, chips] of groups) {
+    nodes.push(el("optgroup", { label: group }, ...chips.map((c) => el("option", { value: c.id }, c.name))));
+  }
+  return nodes;
 }
 
 function renderConfig() {
@@ -175,11 +203,12 @@ function renderConfig() {
   errors.textContent = cfg.config_errors.length ? "Error de configuración: " + cfg.config_errors.join(" · ") : "";
   renderCfgCheck();
 
-  const sel = $("sel-chip");
-  sel.replaceChildren(...cfg.chips.map((c) => el("option", { value: c.id }, `${c.name} — ${c.family}`)));
+  $("sel-chip").replaceChildren(...chipOptions(null));
   const saved = prefs.get("chip", null);
   state.chip = cfg.chips.some((c) => c.id === saved) ? saved : (cfg.chips[0] && cfg.chips[0].id);
-  sel.value = state.chip || "";
+  $("sel-chip").value = state.chip || "";
+
+  $("sel-upload-target").replaceChildren(...chipOptions("¿Para qué placa es?"));
 
   $("sel-interface").replaceChildren(...cfg.interfaces.map((i) =>
     el("option", { value: i.id, title: i.description }, `${i.id} (${i.cfg})`)));
@@ -216,8 +245,22 @@ function onChipChange(initial) {
   const iface = chip.swd && chip.swd.interface ? chip.swd.interface : state.config.default_interface;
   $("sel-interface").value = prefs.get("iface." + chip.id, iface);
   if (!$("sel-interface").value) $("sel-interface").value = iface;
+  // La placa de destino de las subidas sigue a la placa elegida.
+  $("sel-upload-target").value = chip.id;
+  renderMethodButtons();
   updateMethodUI();
   if (!initial) refreshProbes();
+}
+
+function renderMethodButtons() {
+  const chip = currentChip();
+  const seg = $("seg-method");
+  const methods = chip ? chip.methods : [];
+  seg.style.gridTemplateColumns = `repeat(${Math.max(methods.length, 1)}, 1fr)`;
+  seg.replaceChildren(...methods.map((m) => el("button", {
+    type: "button", role: "radio", "data-method": m,
+    onclick: () => setMethod(m),
+  }, methodLabel(chip, m))));
 }
 
 function setMethod(method) {
@@ -231,45 +274,78 @@ function setMethod(method) {
   refreshProbes();
 }
 
+function methodReason(method, action) {
+  const reasons = state.config.unsupported_reasons || {};
+  if (method === "avrdude" && action === "erase") return reasons.avr_erase || "";
+  return reasons[method] || "";
+}
+
+function usesSerialPort(chip, method) {
+  if (method === "esptool") return true;
+  return method === "avrdude" && !(chip && chip.avrdude && chip.avrdude.isp);
+}
+
 function updateMethodUI() {
   const chip = currentChip();
-  const cfg = state.config;
-  const isDfu = state.method === "dfu";
+  const m = state.method;
   for (const btn of $("seg-method").querySelectorAll("button")) {
-    const m = btn.dataset.method;
-    const supported = chip && chip.methods.includes(m);
-    btn.disabled = !supported;
-    btn.title = supported ? "" : `${chip ? chip.name : "El chip"} no tiene configurado este método en chips.yaml`;
-    btn.classList.toggle("active", m === state.method);
-    btn.setAttribute("aria-checked", m === state.method ? "true" : "false");
+    btn.classList.toggle("active", btn.dataset.method === m);
+    btn.setAttribute("aria-checked", btn.dataset.method === m ? "true" : "false");
   }
-  $("swd-fields").hidden = isDfu;
-  $("dfu-fields").hidden = !isDfu;
-  $("leave-field").hidden = !isDfu;
-  $("dfu-reason").hidden = !isDfu;
-  $("dfu-reason").textContent = isDfu ? "Reset, Halt, Run y el servidor GDB no están disponibles por USB DFU: " +
-    "el bootloader de ST solo escribe, lee y borra la flash, sin acceso al núcleo. Para depurar usá SWD." : "";
+  $("swd-fields").hidden = m !== "swd";
+  $("dfu-fields").hidden = m !== "dfu";
+  $("serial-fields").hidden = !usesSerialPort(chip, m);
+  $("isp-note").hidden = !(m === "avrdude" && chip && chip.avrdude && chip.avrdude.isp);
+  $("leave-field").hidden = m !== "dfu";
+  const reason = m === "swd" ? "" : methodReason(m, "halt");
+  $("method-reason").hidden = !reason;
+  $("method-reason").textContent = reason;
 
-  // Dirección para .bin: por defecto la base de flash (o la dirección DFU del chip).
-  const isBin = state.file && state.file.kind === "bin";
+  // Dirección para .bin (STM32: base de flash; ESP: se detecta sola).
+  const isBin = state.file && state.file.kind === "bin" && ["swd", "dfu", "esptool"].includes(m);
   $("addr-field").hidden = !isBin;
   if (chip) {
-    $("inp-address").placeholder = isDfu && chip.dfu ? chip.dfu.address : chip.flash_base;
+    $("inp-address").placeholder = m === "esptool" ? "automática (0x10000 aplicación · 0x0 combinada)"
+      : (m === "dfu" && chip.dfu ? chip.dfu.address : (chip.flash_base || ""));
   }
+  renderFileBinding();
   updateActionButtons();
   renderGdb();
 }
 
+// ¿El archivo elegido corresponde a la placa elegida?
+function fileMismatchReason() {
+  const f = state.file;
+  const chip = currentChip();
+  if (!f || !chip) return "";
+  if (!f.target) return "Este archivo no tiene placa asignada: asignala en la pestaña Archivos.";
+  if (f.target !== chip.id) {
+    const other = chipById(f.target);
+    return `Este archivo es para ${other ? other.name : f.target}, no para ${chip.name}.`;
+  }
+  return "";
+}
+
+function renderFileBinding() {
+  const warn = $("fw-target-warn");
+  const reason = fileMismatchReason();
+  warn.hidden = !reason;
+  warn.textContent = reason;
+}
+
 function updateActionButtons() {
-  const caps = state.config ? state.config.capabilities[state.method] : [];
+  const chip = currentChip();
+  const caps = (chip && state.config.chip_capabilities[chip.id] || {})[state.method] || [];
   const busy = !!state.job;
+  const mismatch = fileMismatchReason();
   for (const btn of document.querySelectorAll("[data-action]")) {
     const action = btn.dataset.action;
     let reason = "";
-    if (!caps.includes(action)) reason = state.config.dfu_unsupported_reason;
+    if (!chip) reason = "No hay placas configuradas";
+    else if (!caps.includes(action)) reason = methodReason(state.method, action) || "No disponible con este método";
     else if (busy) reason = "Hay una operación en curso";
     else if (FILE_ACTIONS.includes(action) && !state.file) reason = "Elegí un archivo de firmware";
-    else if (!state.chip) reason = "No hay chips configurados";
+    else if (FILE_ACTIONS.includes(action) && mismatch) reason = mismatch;
     btn.disabled = !!reason;
     btn.title = reason;
   }
@@ -282,6 +358,7 @@ async function refreshProbes() {
   try {
     const data = await api("GET", "/api/probes?dfu=" + (withDfu ? "1" : "0"));
     state.stlinks = data.stlinks;
+    state.serialPorts = data.serial_ports || [];
     if (withDfu) {
       state.dfu = data.dfu;
       state.dfuError = data.dfu_error;
@@ -311,6 +388,20 @@ function renderProbes() {
   else if (chosen && !chosen.accessible) note = "Sin permiso sobre el USB: revisá las reglas udev (ver README).";
   else if (chosen && chosen.serial_was_binary) note = "ST-Link/V2 con número de serie binario: se usa su forma hexadecimal.";
   $("probe-note").textContent = note;
+
+  // Puerto serie para esptool / avrdude
+  const psel = $("sel-prog-port");
+  // Se recuerda el puerto elegido POR PLACA (no arrastrar el de otra placa).
+  const pprev = prefs.get("progport." + state.chip, "");
+  const ports = state.serialPorts || [];
+  const popts = [];
+  if (!ports.length) popts.push(el("option", { value: "" }, "No hay puertos serie USB"));
+  else if (ports.length > 1) popts.push(el("option", { value: "" }, "Elegí el puerto de la placa…"));
+  for (const p of ports) popts.push(el("option", { value: p.device }, `${p.device} — ${p.description}`));
+  psel.replaceChildren(...popts);
+  if (ports.some((p) => p.device === pprev)) psel.value = pprev;
+  else if (ports.length === 1) psel.value = ports[0].device;
+  $("port-note").textContent = ports.length ? "" : "Conectá la placa (ESP32 / Arduino) por USB a la BeagleBoard.";
 
   // DFU
   const dsel = $("sel-dfu");
@@ -352,12 +443,21 @@ function renderFiles() {
   const list = $("files-list");
   const blocks = [];
   for (const project of state.projects) {
-    const files = project.files.filter((f) => !filter || f.path.toLowerCase().includes(filter));
+    const files = project.files.filter((f) => !filter || f.path.toLowerCase().includes(filter)
+      || (f.target && (chipById(f.target) || {}).name && chipById(f.target).name.toLowerCase().includes(filter)));
     if (!files.length) continue;
     const head = el("div", { class: "project-head" },
       el("span", {}, project.name),
       el("span", { class: "tag" }, project.uploaded ? "subido desde la web" : (project.key ? "sincronizado" : "")));
     const rows = files.map((f) => {
+      // Selector de placa del archivo (asignar / cambiar).
+      const target = el("select", {
+        class: "target-sel" + (f.target ? "" : " unassigned"),
+        title: "Placa a la que corresponde este archivo",
+        onclick: (ev) => ev.stopPropagation(),
+        onchange: (ev) => assignTarget(f, ev.target.value),
+      }, ...chipOptions("⚠ sin placa"));
+      target.value = f.target || "";
       const row = el("div", {
         class: "file-row" + (state.file && state.file.path === f.path ? " selected" : "") + (f.usable ? "" : " unusable"),
         title: f.usable ? f.path : "Nombre con caracteres no permitidos: renombralo para poder usarlo",
@@ -365,6 +465,7 @@ function renderFiles() {
       },
         el("span", { class: "kind " + f.kind }, f.kind),
         el("span", { class: "name" }, f.name, f.subdir ? el("span", { class: "sub" }, "  " + f.subdir) : null),
+        target,
         el("span", { class: "size" }, fmtSize(f.size)),
         el("span", { class: "date" }, fmtDate(f.mtime)),
         f.deletable
@@ -382,14 +483,37 @@ function renderFiles() {
   list.replaceChildren(...blocks);
 }
 
+async function assignTarget(file, target) {
+  try {
+    const res = await api("PUT", "/api/files/target", { path: file.path, target: target || null });
+    const chip = chipById(target);
+    toast(target ? `${file.name} → ${chip ? chip.name : target}` : `${file.name}: sin placa asignada`);
+    for (const w of res.warnings || []) toast(w, false);
+    await loadFiles();
+  } catch (e) {
+    toast(e.message, true);
+    renderFiles();   // vuelve el selector al valor anterior
+  }
+}
+
 function setFile(file) {
   state.file = file;
   const box = $("fw-selected");
   if (file) {
+    const chip = chipById(file.target);
     box.className = "fw-selected";
     box.replaceChildren(el("span", { class: "kind " + file.kind }, file.kind), " ", file.path,
-      el("span", { class: "muted" }, `  (${fmtSize(file.size)})`));
+      el("span", { class: "muted" }, `  (${fmtSize(file.size)})`),
+      el("div", { class: "fw-target" + (chip ? "" : " unassigned") }, chip ? `Placa: ${chip.name}` : "⚠ Sin placa asignada"));
     prefs.set("file", file.path);
+    // Elegir un archivo elige su placa: así no se graba en otro micro.
+    if (chip && chip.id !== state.chip) {
+      state.chip = chip.id;
+      $("sel-chip").value = chip.id;
+      onChipChange(false);
+      toast(`Placa: ${chip.name} (la del archivo)`);
+      return;
+    }
   } else {
     box.className = "fw-selected empty";
     box.replaceChildren("Elegí un archivo en la pestaña ", el("em", {}, "Archivos"));
@@ -409,12 +533,13 @@ async function deleteFile(file) {
   }
 }
 
-function uploadOne(file, project) {
+function uploadOne(file, project, target) {
   // XMLHttpRequest para poder mostrar el progreso de la subida.
   return new Promise((resolve, reject) => {
     const form = new FormData();
     form.append("file", file);
     form.append("project", project);
+    form.append("target", target);
     const xhr = new XMLHttpRequest();
     xhr.open("POST", "/api/files/upload");
     xhr.setRequestHeader("X-Bench", "1");
@@ -436,12 +561,19 @@ function uploadOne(file, project) {
 
 async function uploadFiles(fileList) {
   const project = $("inp-project").value.trim() || "general";
+  const target = $("sel-upload-target").value;
+  const chip = chipById(target);
+  if (!chip) {
+    toast("Elegí para qué placa es el binario antes de subirlo", true);
+    $("sel-upload-target").focus();
+    return;
+  }
   const maxBytes = state.config.uploads.max_size_mb * 1024 * 1024;
   let last = null;
   for (const file of fileList) {
     const ext = (file.name.match(/\.[^.]+$/) || [""])[0].toLowerCase();
-    if (!state.config.uploads.extensions.includes(ext)) {
-      toast(`${file.name}: extensión no permitida (.elf, .hex, .bin)`, true);
+    if (!chip.extensions.includes(ext)) {
+      toast(`${file.name}: ${chip.name} acepta ${chip.extensions.join(", ")}`, true);
       continue;
     }
     if (file.size > maxBytes) {
@@ -449,8 +581,9 @@ async function uploadFiles(fileList) {
       continue;
     }
     try {
-      last = await uploadOne(file, project);
-      $("upload-status").textContent = `✔ ${file.name} subido`;
+      last = await uploadOne(file, project, target);
+      $("upload-status").textContent = `✔ ${file.name} subido para ${chip.name}`;
+      for (const w of last.warnings || []) toast(w, false);
     } catch (e) {
       $("upload-status").textContent = "";
       toast(`${file.name}: ${e.message}`, true);
@@ -481,9 +614,11 @@ async function runAction(action, extra) {
   if (state.method === "swd") {
     body.interface = $("sel-interface").value || null;
     body.probe_serial = $("sel-probe").value || null;
-  } else {
+  } else if (state.method === "dfu") {
     body.dfu_serial = $("sel-dfu").value || null;
     body.leave = $("chk-leave").checked;
+  } else if (usesSerialPort(chip, state.method)) {
+    body.serial_port = $("sel-prog-port").value || null;
   }
   if (FILE_ACTIONS.includes(action)) {
     body.file = state.file.path;
@@ -530,7 +665,7 @@ function showResult(job) {
 
 function renderGdb() {
   const g = state.gdb;
-  const isDfu = state.method === "dfu";
+  const noGdb = state.method !== "swd";
   const dot = $("gdb-dot");
   const labels = { stopped: "Detenido", starting: "Iniciando…", listening: "Escuchando", error: "Error" };
   dot.className = "dot" + ({ listening: " ok", starting: " busy", error: " err" }[g.state] || "");
@@ -542,13 +677,13 @@ function renderGdb() {
   $("gdb-connect").hidden = !listening;
   $("gdb-addr").textContent = listening ? g.connect : "";
   let note = "";
-  if (isDfu) note = "No disponible por USB DFU (sin acceso al núcleo). Elegí el método SWD para depurar.";
+  if (noGdb) note = "Sólo disponible por SWD con ST-Link (STM32). " + methodReason(state.method, "gdb");
   else if (g.state === "error") note = g.last_error || "";
   else if (listening) note = `En GDB: target extended-remote ${g.connect}`;
   else note = `Puerto ${state.config ? state.config.gdb.port : 3333}, escucha en: ${state.config ? state.config.gdb.bind : ""}`;
   $("gdb-note").textContent = note;
-  $("btn-gdb-start").disabled = isDfu || g.active || !!state.job;
-  $("btn-gdb-start").title = isDfu ? state.config.dfu_unsupported_reason : "";
+  $("btn-gdb-start").disabled = noGdb || g.active || !!state.job;
+  $("btn-gdb-start").title = noGdb ? methodReason(state.method, "gdb") : "";
   $("btn-gdb-stop").disabled = !g.active;
 
   const pill = $("pill-gdb");
@@ -692,6 +827,8 @@ async function loadSystem() {
       stat("Disco (proyectos)", proj ? `${fmtSize(proj.free)} libres` : "—", proj ? proj.used / proj.total : null),
       stat("OpenOCD", el("code", {}, s.versions.openocd || "no detectado")),
       stat("dfu-util", el("code", {}, s.versions.dfu_util || "no detectado")),
+      stat("esptool", el("code", {}, s.versions.esptool || "no detectado")),
+      stat("avrdude", el("code", {}, s.versions.avrdude || "no detectado")),
     );
     $("pill-host").querySelector("span").textContent = `${s.hostname}${s.tailscale_ip ? " · " + s.tailscale_ip : ""}`;
   } catch (e) {
@@ -852,10 +989,9 @@ function bindUI() {
   $("sel-chip").addEventListener("change", (ev) => { state.chip = ev.target.value; onChipChange(false); });
   $("sel-interface").addEventListener("change", (ev) => prefs.set("iface." + state.chip, ev.target.value));
   $("sel-probe").addEventListener("change", (ev) => { prefs.set("probe", ev.target.value); renderProbes(); });
-  for (const btn of $("seg-method").querySelectorAll("button")) {
-    btn.addEventListener("click", () => setMethod(btn.dataset.method));
-  }
   $("btn-refresh-probes").addEventListener("click", refreshProbes);
+  $("btn-refresh-ports").addEventListener("click", refreshProbes);
+  $("sel-prog-port").addEventListener("change", (ev) => prefs.set("progport." + state.chip, ev.target.value));
   $("btn-refresh-dfu").addEventListener("click", refreshProbes);
   for (const btn of document.querySelectorAll("[data-action]")) {
     btn.addEventListener("click", () => runAction(btn.dataset.action));

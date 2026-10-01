@@ -1,29 +1,38 @@
-# Catálogo de chips del banco.
+# Catálogo de placas y chips del banco.
 #
-# Agregar un chip = agregar una entrada. Campos:
-#   id              identificador único [a-z0-9_-]
+# Agregar una placa = agregar una entrada. Campos comunes:
+#   id              identificador único [a-z0-9_-] (los binarios se asignan a este id)
 #   name, family    texto que se muestra en la interfaz
-#   flash.base      dirección base de la flash interna
-#   flash.size_kb   tamaño de la flash (se usa para validar direcciones y .bin)
-#   flash.sector_kb opcional, informativo
-#   default_method  swd | dfu (debe estar en "methods")
-#   methods.swd     parámetros para OpenOCD:
-#       target_cfg         archivo de target relativo a los scripts de OpenOCD
-#       interface          id de config/bench.yaml -> interfaces (opcional)
-#       adapter_speed_khz  velocidad SWD
-#       flash_banks        bancos de OpenOCD a borrar en "borrar flash completa"
-#       tcl_vars           variables que se definen antes del target (p. ej. DUAL_BANK)
-#       erase_cmds         opcional: comandos Tcl que reemplazan el borrado genérico
-#   methods.dfu     parámetros para dfu-util (bootloader USB de ST):
-#       vid_pid            por defecto 0483:df11
-#       alt                "alternate setting" de la flash interna (normalmente 0)
-#       address            dirección de carga (por defecto flash.base)
+#   group           grupo en el selector (por defecto según el método)
+#   default_method  método por defecto (debe estar en "methods")
 #
-# Los chips sin USB (o cuyo bootloader no hace DFU) solo declaran "swd".
+# STM32 (necesitan "flash"):
+#   flash.base / flash.size_kb / flash.sector_kb
+#   methods.swd     OpenOCD con ST-Link:
+#       target_cfg, interface, adapter_speed_khz, flash_banks, tcl_vars, erase_cmds
+#       idcode {address, mask, value}: antes de grabar/verificar/borrar se lee el ID del
+#                chip conectado (DBGMCU_IDCODE) y si no coincide NO se toca la flash.
+#   methods.dfu     dfu-util (bootloader USB de ST): vid_pid, alt, address
+#
+# Espressif:
+#   methods.esptool {chip, baud, app_address, before}
+#       chip: esp8266, esp32, esp32s2, esp32s3, esp32c2, esp32c3, esp32c5, esp32c6,
+#             esp32c61, esp32h2, esp32p4. esptool --chip <chip> se niega a grabar si el
+#             chip conectado es otro, y la app además verifica el ID dentro del .bin.
+#       app_address: dónde va un .bin de aplicación suelta (0x10000; ESP8266: 0x0).
+#                    Los .bin "combinados" (bootloader + particiones + app) van en 0x0.
+#
+# Arduino / AVR:
+#   methods.avrdude {part, programmer, baud, flash_kb, bootloader_kb, touch_1200, no_auto_erase}
+#       avrdude compara la firma del chip con "part" y aborta si no coincide.
+#       bootloader_kb: espacio reservado al final de la flash (el .hex no puede pisarlo).
+#       touch_1200: Leonardo/Micro: abrir el puerto a 1200 baud para entrar al bootloader.
+#       programmer usbasp/usbtiny: programador ISP (sin bootloader; permite borrar).
 
 chips:
+  # =========================== STM32 ===========================
   - id: stm32h503cb
-    name: STM32H503CBT6
+    name: STM32H503CB (WeAct Core Board)
     family: H5 (Cortex-M33)
     flash: { base: 0x08000000, size_kb: 128, sector_kb: 8 }
     default_method: swd
@@ -35,6 +44,7 @@ chips:
         # 1000 kHz: probado en el banco con cables dupont (4000 kHz fallaba de forma intermitente).
         adapter_speed_khz: 1000
         flash_banks: [0]
+        idcode: { address: 0x44024000, value: 0x474 }
       dfu:
         vid_pid: "0483:df11"
         alt: 0
@@ -50,11 +60,10 @@ chips:
         interface: stlink-dap
         adapter_speed_khz: 4000
         flash_banks: [0]
+        idcode: { address: 0x5C001000, value: 0x483 }
       dfu:
         vid_pid: "0483:df11"
         alt: 0
-
-  # --- Ejemplos de otras familias comunes ---
 
   - id: stm32f103c8
     name: STM32F103C8 (Blue Pill)
@@ -67,6 +76,8 @@ chips:
         interface: stlink          # ST-Link V2 clones: solo HLA
         adapter_speed_khz: 1000
         flash_banks: [0]
+        # Muchas "Blue Pill" traen clones CKS32/CS32 con otro ID: si falla, quitá esta línea.
+        idcode: { address: 0xE0042000, value: 0x410 }
       # El bootloader del F103 no tiene USB DFU (solo USART).
 
   - id: stm32f411ce
@@ -80,6 +91,7 @@ chips:
         interface: stlink
         adapter_speed_khz: 2000
         flash_banks: [0]
+        idcode: { address: 0xE0042000, value: 0x431 }
       dfu:
         vid_pid: "0483:df11"
         alt: 0
@@ -95,6 +107,7 @@ chips:
         interface: stlink
         adapter_speed_khz: 4000
         flash_banks: [0]
+        idcode: { address: 0xE0042000, value: 0x415 }
       dfu:
         vid_pid: "0483:df11"
         alt: 0
@@ -110,6 +123,7 @@ chips:
         interface: stlink
         adapter_speed_khz: 4000
         flash_banks: [0]
+        idcode: { address: 0x40015800, value: 0x460 }
 
   - id: stm32g474re
     name: STM32G474RE (Nucleo-G474RE)
@@ -122,6 +136,139 @@ chips:
         interface: stlink
         adapter_speed_khz: 4000
         flash_banks: [0]
+        idcode: { address: 0xE0042000, value: 0x469 }
       dfu:
         vid_pid: "0483:df11"
         alt: 0
+
+  # ========================= Espressif =========================
+  - id: esp8266
+    name: ESP8266 (NodeMCU / Wemos D1 mini)
+    family: ESP8266 (Xtensa L106)
+    methods:
+      esptool: { chip: esp8266, baud: 460800 }
+
+  - id: esp32
+    name: ESP32 (DevKitC / WROOM-32 / WROVER)
+    family: ESP32 (Xtensa LX6)
+    methods:
+      esptool: { chip: esp32, baud: 460800 }
+
+  - id: esp32-s2
+    name: ESP32-S2 (Saola / S2 Mini)
+    family: ESP32-S2 (Xtensa LX7)
+    methods:
+      esptool: { chip: esp32s2, baud: 460800 }
+
+  - id: esp32-s3
+    name: ESP32-S3 (DevKitC / N16R8)
+    family: ESP32-S3 (Xtensa LX7)
+    methods:
+      esptool: { chip: esp32s3, baud: 460800 }
+
+  - id: esp32-c2
+    name: ESP32-C2 (ESP8684)
+    family: ESP32-C2 (RISC-V)
+    methods:
+      esptool: { chip: esp32c2, baud: 460800 }
+
+  - id: esp32-c3
+    name: ESP32-C3 (DevKitM / SuperMini)
+    family: ESP32-C3 (RISC-V)
+    methods:
+      esptool: { chip: esp32c3, baud: 460800 }
+
+  - id: esp32-c5
+    name: ESP32-C5
+    family: ESP32-C5 (RISC-V, WiFi 5 GHz)
+    methods:
+      esptool: { chip: esp32c5, baud: 460800 }
+
+  - id: esp32-c6
+    name: ESP32-C6 (DevKitC)
+    family: ESP32-C6 (RISC-V)
+    methods:
+      esptool: { chip: esp32c6, baud: 460800 }
+
+  - id: esp32-c61
+    name: ESP32-C61
+    family: ESP32-C61 (RISC-V)
+    methods:
+      esptool: { chip: esp32c61, baud: 460800 }
+
+  - id: esp32-h2
+    name: ESP32-H2 (DevKitM)
+    family: ESP32-H2 (RISC-V, Thread/Zigbee)
+    methods:
+      esptool: { chip: esp32h2, baud: 460800 }
+
+  - id: esp32-p4
+    name: ESP32-P4
+    family: ESP32-P4 (RISC-V)
+    methods:
+      esptool: { chip: esp32p4, baud: 460800 }
+
+  # ======================= Arduino / AVR =======================
+  - id: arduino-uno
+    name: Arduino Uno (ATmega328P)
+    family: AVR (ATmega328P, Optiboot)
+    methods:
+      avrdude: { part: atmega328p, programmer: arduino, baud: 115200, flash_kb: 32, bootloader_kb: 0.5 }
+
+  - id: arduino-nano
+    name: Arduino Nano (ATmega328P, bootloader nuevo)
+    family: AVR (ATmega328P, Optiboot)
+    methods:
+      avrdude: { part: atmega328p, programmer: arduino, baud: 115200, flash_kb: 32, bootloader_kb: 0.5 }
+
+  - id: arduino-nano-old
+    name: Arduino Nano (ATmega328P, bootloader viejo / clones)
+    family: AVR (ATmega328P, ATmegaBOOT)
+    methods:
+      avrdude: { part: atmega328p, programmer: arduino, baud: 57600, flash_kb: 32, bootloader_kb: 2 }
+
+  - id: arduino-pro-mini
+    name: Arduino Pro Mini (ATmega328P, 5 V 16 MHz o 3,3 V 8 MHz)
+    family: AVR (ATmega328P, ATmegaBOOT)
+    methods:
+      avrdude: { part: atmega328p, programmer: arduino, baud: 57600, flash_kb: 32, bootloader_kb: 2 }
+
+  - id: arduino-duemilanove-168
+    name: Arduino Duemilanove / Diecimila (ATmega168)
+    family: AVR (ATmega168)
+    methods:
+      avrdude: { part: atmega168, programmer: arduino, baud: 19200, flash_kb: 16, bootloader_kb: 2 }
+
+  - id: arduino-mega2560
+    name: Arduino Mega 2560 (ATmega2560)
+    family: AVR (ATmega2560, stk500v2)
+    methods:
+      avrdude: { part: atmega2560, programmer: wiring, baud: 115200, flash_kb: 256, bootloader_kb: 8,
+                 no_auto_erase: true }
+
+  - id: arduino-mega1280
+    name: Arduino Mega (ATmega1280)
+    family: AVR (ATmega1280)
+    methods:
+      avrdude: { part: atmega1280, programmer: arduino, baud: 57600, flash_kb: 128, bootloader_kb: 4 }
+
+  - id: arduino-leonardo
+    name: Arduino Leonardo (ATmega32U4)
+    family: AVR (ATmega32U4, Caterina, USB nativo)
+    methods:
+      avrdude: { part: atmega32u4, programmer: avr109, baud: 57600, flash_kb: 32, bootloader_kb: 4,
+                 touch_1200: true }
+
+  - id: arduino-micro
+    name: Arduino Micro / Pro Micro (ATmega32U4)
+    family: AVR (ATmega32U4, Caterina, USB nativo)
+    methods:
+      avrdude: { part: atmega32u4, programmer: avr109, baud: 57600, flash_kb: 32, bootloader_kb: 4,
+                 touch_1200: true }
+
+  - id: avr-atmega328p-usbasp
+    name: ATmega328P genérico (programador USBasp)
+    family: AVR (ATmega328P, ISP)
+    group: Arduino / AVR
+    methods:
+      avrdude: { part: atmega328p, programmer: usbasp, flash_kb: 32, bootloader_kb: 0 }

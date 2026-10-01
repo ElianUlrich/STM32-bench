@@ -1,13 +1,17 @@
 # Banco STM32 — programación y debug remoto sobre BeagleBoard-xM
 
 Aplicación web que convierte una **BeagleBoard-xM** (headless, sin pantalla ni teclado) en un banco
-de programación y depuración remota de microcontroladores **STM32**. Desde el navegador de tu PC
-(conectada por **Tailscale**) podés:
+de programación y depuración remota de microcontroladores **STM32**, **ESP32/ESP8266** y
+**Arduino (AVR)**. Desde el navegador de tu PC (conectada por **Tailscale**) podés:
 
-- subir firmware (`.elf`, `.hex`, `.bin`) o usar el que sincronizás con Syncthing;
+- subir firmware (`.elf`, `.hex`, `.bin`) indicando **para qué placa es**; la app revisa el contenido
+  y no deja grabarlo en otra (ver [Binario ↔ placa](#binario--placa-no-grabar-el-micro-equivocado));
 - flashear, verificar, borrar, resetear, detener y reanudar el chip por **ST-Link (SWD) con OpenOCD**;
 - flashear, verificar y borrar por **USB DFU** (bootloader de ST, con `dfu-util`), entrando al
   bootloader en forma manual, con GPIO o con un comando por puerto serie;
+- grabar, verificar, borrar, resetear e identificar **ESP32 / ESP8266** por puerto serie con `esptool`;
+- grabar, verificar, resetear e identificar **Arduino** (Uno, Nano, Mega, Leonardo, Micro, Pro Mini…)
+  con `avrdude` por su bootloader, o cualquier ATmega con un programador **ISP** (USBasp/USBtiny);
 - levantar un **servidor GDB** para depurar desde `arm-none-eabi-gdb`, VS Code o STM32CubeIDE;
 - ver en vivo la salida de OpenOCD/dfu-util y un **monitor serie**;
 - ver el estado de la placa y **apagarla o reiniciarla** con seguridad.
@@ -16,7 +20,9 @@ de programación y depuración remota de microcontroladores **STM32**. Desde el 
  Tu PC (navegador, GDB) ──Tailscale──► BeagleBoard-xM (app web :8080, OpenOCD GDB :3333)
                                           │ USB host
                                           ├── ST-Link (Nucleo o externo) ──SWD──► STM32
-                                          └── USB del propio STM32 (PA11/PA12) ──► STM32 (DFU)
+                                          ├── USB del propio STM32 (PA11/PA12) ──► STM32 (DFU)
+                                          ├── USB-serie (CP210x/CH340/USB-JTAG) ──► ESP32 (esptool)
+                                          └── USB del Arduino / USBasp ──► ATmega (avrdude)
 ```
 
 ## Estado del proyecto (30/09/2026)
@@ -25,6 +31,11 @@ de programación y depuración remota de microcontroladores **STM32**. Desde el 
 - ✔ Acceso remoto por Tailscale y servicio systemd que arranca solo.
 - ✔ OpenOCD (fork de ST) compilado en la placa; conexión SWD con un **STM32H503CBT6** mediante un
   ST-LINK/V2 original verificada.
+- ✔ Soporte de **ESP32/ESP8266** (esptool) y **Arduino/AVR** (avrdude): 28 placas en `chips.yaml`,
+  vínculo binario ↔ placa y verificación del ID del chip en STM32. Probado en modo mock; falta en
+  hardware real.
+- ⏳ USB DFU del H503: el chip entra al bootloader pero la BeagleBoard no lo enumera (sospecha: cable
+  USB-C solo de carga o el puerto).
 - ⏳ En curso: flasheo del firmware de prueba ([firmware/h503_leds](firmware/h503_leds/)) y depuración
   remota con GDB.
 - 📄 Documentación completa, con diagramas de bloques y la bitácora de la puesta en marcha:
@@ -33,7 +44,8 @@ de programación y depuración remota de microcontroladores **STM32**. Desde el 
 
 Contenido: [Hardware](#hardware-y-conexiones) · [Seguridad](#seguridad) ·
 [Instalación](#instalación-en-la-beagleboard-xm) · [Tailscale](#tailscale) · [Uso](#uso-de-la-interfaz) ·
-[Configuración](#configuración) · [DFU y BootControl](#usb-dfu-y-bootcontrol) ·
+[Configuración](#configuración) · [ESP32 y Arduino](#esp32-y-arduino) ·
+[Binario ↔ placa](#binario--placa-no-grabar-el-micro-equivocado) · [DFU y BootControl](#usb-dfu-y-bootcontrol) ·
 [Depurar con GDB](#depurar-con-gdb) · [Syncthing](#syncthing-alternativa-para-la-carpeta-de-proyectos) ·
 [SD en solo lectura](#opcional-sistema-de-archivos-en-solo-lectura) · [Desarrollo](#desarrollo-en-la-pc-modo-mock) ·
 [Problemas](#solución-de-problemas) · [Pendiente de verificar](#pendiente-de-verificar-en-hardware)
@@ -60,6 +72,11 @@ Tener en cuenta:
   consume mucho, usá un **hub USB con fuente propia**; si no, el USB se cae a mitad de un flasheo.
 - **Condiciones del bootloader DFU**: algunas familias sólo hacen USB DFU con un cristal externo de
   ciertas frecuencias. Revisá la nota de aplicación **AN2606** de ST para tu chip.
+- **ESP32 / ESP8266**: el USB de la placa de desarrollo (conversor CP210x/CH340 o el USB-JTAG
+  interno de S3/C3/C6) aparece como `/dev/ttyUSB*` o `/dev/ttyACM*`. esptool lo pone en modo
+  descarga solo, con DTR/RTS; si tu placa no tiene ese circuito, mantené BOOT apretado al grabar.
+- **Arduino**: el USB de la placa (`/dev/ttyACM*` en Uno/Mega/Leonardo, `/dev/ttyUSB*` en clones con
+  CH340). Para un ATmega sin bootloader, un **USBasp/USBtiny** en otro USB (ISP).
 
 ## Seguridad
 
@@ -212,9 +229,14 @@ Opcional:
   declara en `chips.yaml`), la interfaz de OpenOCD y el **ST-Link** (se detectan todos los conectados
   por número de serie; con más de uno hay que elegir). Con DFU, se listan los dispositivos en modo
   DFU (`dfu-util -l`) o se deja en "Automático".
-- **Archivos**: arrastrá archivos a la zona de subida (van a `proyectos/_subidos/<proyecto>/`) o elegí
-  uno de los proyectos sincronizados. Solo se pueden **borrar** los subidos desde la web.
-- **Acciones**: Flashear (program + verify + reset), Verificar, Borrar flash, Reset, Halt, Run.
+- **Archivos**: elegí **para qué placa es** y arrastrá el archivo a la zona de subida (va a
+  `proyectos/_subidos/<proyecto>/`), o elegí uno de los proyectos sincronizados y asignale la placa
+  en su fila. Al elegir un archivo, la placa se selecciona sola. Solo se pueden **borrar** los
+  subidos desde la web.
+- **ESP32 / Arduino**: elegí el **puerto serie** de la placa (se listan con su VID:PID). Si el monitor
+  serie tiene ese puerto abierto, la app lo cierra mientras graba y lo vuelve a abrir al terminar.
+- **Acciones**: Flashear (program + verify + reset), Verificar, Borrar flash, Reset, Halt, Run e
+  **Identificar** (lee el ID del chip / la firma / el tipo de ESP sin grabar nada).
   Para un `.bin` se pide la dirección de carga (por defecto la base de flash del chip). Con DFU, los
   botones de Reset/Halt/Run y el servidor GDB se deshabilitan y se explica por qué.
 - **Un solo trabajo a la vez**: si el programador está ocupado, el pedido se rechaza (no se encola).
@@ -265,6 +287,8 @@ Nota H5: la CPU del H5 está en el AP 1 del DAP, así que **no funciona con la i
 ### `bench.yaml`
 
 - `openocd.binary`, `openocd.scripts_dir`, `dfu_util.binary` y los timeouts.
+- `esptool.binary` (vacío: usa el esptool del venv, `python -m esptool`) y `esptool.timeout_s`;
+  `avrdude.binary` y `avrdude.timeout_s`.
 - `interfaces`: `stlink` (`interface/stlink.cfg`, `hla_swd`) y `stlink-dap`
   (`interface/stlink-dap.cfg`, `dapdirect_swd`). El transporte se pasa explícitamente porque
   `stlink-dap.cfg` no lo elige solo.
@@ -274,6 +298,64 @@ Nota H5: la CPU del H5 está en el AP 1 del DAP, así que **no funciona con la i
 - `uploads.max_size_mb`, `scan.max_depth`, `serial.bauds`, `history.max_entries`.
 - `security.allowed_networks` y `security.session_hours`.
 - `boot_control`: ver la sección siguiente.
+
+## ESP32 y Arduino
+
+Cada placa de `chips.yaml` declara uno o más métodos: `swd` y `dfu` (STM32), `esptool` (Espressif) o
+`avrdude` (AVR). La interfaz agrupa las placas por familia y muestra solo los botones que el método
+soporta; los que no, quedan deshabilitados con el motivo.
+
+| Método | Placas incluidas | Archivo | Acciones |
+|---|---|---|---|
+| `esptool` | ESP8266, ESP32, S2, S3, C2, C3, C5, C6, C61, H2, P4 | `.bin` | grabar, verificar, borrar, reset, identificar |
+| `avrdude` (bootloader) | Uno, Nano (y bootloader viejo), Pro Mini, Duemilanove, Mega 2560/1280, Leonardo, Micro | `.hex` | grabar, verificar, reset, identificar |
+| `avrdude` (ISP) | ATmega328P con USBasp (agregá otros copiando la entrada) | `.hex` | ídem + borrar |
+
+```yaml
+  - id: esp32-c3
+    name: ESP32-C3
+    default_method: esptool
+    methods:
+      esptool: { chip: esp32c3, baud: 460800 }     # app_address por defecto 0x10000
+  - id: arduino-leonardo
+    name: Arduino Leonardo
+    default_method: avrdude
+    methods:
+      avrdude: { part: atmega32u4, programmer: avr109, baud: 57600,
+                 flash_kb: 32, bootloader_kb: 4, touch_1200: true }
+```
+
+- **ESP, qué `.bin` subir**: desde Arduino IDE, *Sketch → Exportar binario compilado* genera
+  `sketch.ino.bin` (solo la aplicación: se graba en `0x10000`) y `sketch.ino.merged.bin` (bootloader
+  + particiones + app: se graba en `0x0`). La app reconoce cuál es y elige la dirección sola. Con
+  ESP-IDF, `esptool.py merge_bin` genera el combinado. El `.bin` se graba con
+  `--flash_mode/--flash_freq/--flash_size keep` para no tocar el encabezado del bootloader.
+- **Arduino, qué `.hex` subir**: *Sketch → Exportar binario compilado* genera `sketch.ino.hex` (sin
+  bootloader, el que hay que usar) y `sketch.ino.with_bootloader.hex` (solo para ISP; por bootloader
+  serie se rechaza porque pisa el bootloader).
+- **Leonardo / Micro** (32U4): antes de grabar, la app abre el puerto a 1200 baudios para que el chip
+  salte al bootloader y espera el puerto nuevo que aparece.
+- **Borrar** en un Arduino por bootloader no existe (el bootloader no borra el chip completo): hace
+  falta ISP. **Reset** pulsa DTR (o el toque de 1200 baudios en 32U4).
+- **GDB, Halt y Run** solo están para STM32 por SWD. Un ESP32 se podría depurar por JTAG con
+  OpenOCD-esp32, pero eso no está implementado.
+
+## Binario ↔ placa: no grabar el micro equivocado
+
+Cada archivo queda **vinculado a una placa** (se guarda en `firmware_meta.json`, en el directorio de
+estado). Para grabar se exigen dos cosas: que el archivo tenga placa asignada **y** que esa placa
+sea la elegida. Además, el **contenido** se revisa al subirlo, al reasignarlo y otra vez antes de
+cada grabación (el archivo pudo cambiar):
+
+| Familia | Qué se comprueba en el archivo | Qué se comprueba en el chip conectado |
+|---|---|---|
+| STM32 | `.elf` de arquitectura ARM; direcciones dentro de la flash del chip | OpenOCD lee `DBGMCU_IDCODE` antes de grabar y aborta si el ID no es el esperado (p. ej. `0x474` en H503) |
+| ESP | encabezado `0xE9`, **ID de chip** del encabezado (ESP32 ≠ S3 ≠ C3…) y offset del bootloader en los combinados | esptool compara `--chip` con el chip que responde y aborta si no coincide |
+| AVR | `.hex` válido, que entre en la flash y que no pise el bootloader | avrdude lee la **firma** del chip y aborta si no es la del `part` |
+
+Limitación: un `.hex` de AVR **no dice para qué chip fue compilado**, así que un sketch de Uno y uno
+de Nano (mismo ATmega328P) son indistinguibles; ahí la protección es la asignación que hacés al
+subirlo más la firma que verifica avrdude. En ESP8266 el encabezado tampoco tiene ID de chip.
 
 ## USB DFU y BootControl
 
@@ -517,7 +599,10 @@ python -m venv .venv
 Cubren: validación de archivos y path traversal, construcción de comandos de OpenOCD y dfu-util
 (listas de argumentos, inyección Tcl), carga y validación de `chips.yaml`/`bench.yaml`, selección de
 método, conversión elf/hex→bin, flujo de BootControl (gpio con driver falso, manual, serial, mock y
-DFU completo con el simulador), detección de ST-Link por sysfs, autenticación y la API.
+DFU completo con el simulador), detección de ST-Link por sysfs, autenticación y la API, análisis de
+`.bin` de ESP y `.hex` de AVR, comandos de esptool/avrdude, vínculo archivo ↔ placa y flujos completos
+de ESP32, Uno, Leonardo, ISP e identificación de STM32 con los simuladores (`mock_esptool.py`,
+`mock_avrdude.py`, `mock_openocd.py`).
 
 ## Estructura del repositorio
 
@@ -525,13 +610,15 @@ DFU completo con el simulador), detección de ST-Link por sysfs, autenticación 
 app/
   main.py            FastAPI, middleware de seguridad, sesiones, estáticos
   api.py             rutas /api/...
-  bench.py           servicio central: valida pedidos y arma los trabajos SWD/DFU
+  bench.py           servicio central: valida pedidos y arma los trabajos SWD/DFU/ESP/AVR
   settings.py        variables de entorno y bench.yaml
   chips.py           chips.yaml y verificación de .cfg
+  compat.py          ¿este archivo es para esta placa? (ARM/ESP/AVR)
+  firmware_meta.py   vínculo archivo -> placa (firmware_meta.json)
   files.py           validación, subida, escaneo, borrado
   convert.py         .elf/.hex -> .bin (DFU)
   probe.py           ST-Link por sysfs y dispositivos DFU
-  programmers/       base (capacidades), openocd.py, dfu.py (comandos puros),
+  programmers/       base (capacidades), openocd.py, dfu.py, esptool.py, avrdude.py (comandos puros),
                      runner.py (un trabajo a la vez), gdbserver.py
   bootcontrol/       manual, gpio (libgpiod), serial_cmd, mock
   serial_monitor.py  monitor serie (pyserial)
@@ -564,6 +651,14 @@ tests/               pytest
 - **La web no carga desde tu PC**: ¿Tailscale activo en ambos lados? ¿Tu IP está en
   `security.allowed_networks`? `journalctl -u stm32-bench -n 50`.
 - **Apagar/Reiniciar da error de sudo**: `sudo -l -U stm32bench` debe listar solo poweroff y reboot.
+- **ESP: `Failed to connect ... No serial data received`**: la placa no entró en modo descarga.
+  Mantené BOOT apretado, tocá EN/RST y soltá BOOT al empezar a grabar; o bajá `baud` en `chips.yaml`.
+- **ESP: `This chip is ESP32-S3, not ESP32`**: la placa conectada no es la elegida (la protección
+  funcionó). Elegí la placa correcta y subí el binario compilado para ella.
+- **Arduino: `stk500_getsync() not in sync`**: puerto equivocado, placa con bootloader viejo (probá
+  "Arduino Nano (bootloader viejo)", 57600 baud) o el monitor serie de otra app tiene el puerto.
+- **Arduino: `Expected signature for ...`**: el chip conectado no es el de la placa elegida.
+- **"Este archivo no tiene placa asignada"**: asignale la placa en su fila de la lista de archivos.
 
 ## Pendiente de verificar en hardware
 
@@ -595,3 +690,11 @@ Verificalo en la BeagleBoard:
 12. Apagar y reiniciar vía sudo, y el tiempo real hasta poder cortar la energía.
 13. Consumo de RAM/CPU de la app en la xM (objetivo: < 80 MB) y fluidez del log en vivo.
 14. La sección opcional de overlay de solo lectura (`overlayroot`, initramfs en la xM).
+15. **Identificar** en STM32: el Tcl `read_memory` sobre `DBGMCU_IDCODE` con el OpenOCD de ST y el ID
+    real de cada familia (sobre todo G0, cuyo DBGMCU está en `0x40015800`).
+16. esptool 4.12 instalado `--no-deps` en el venv de la xM (sin `cryptography`) y grabación real de
+    un ESP32 y un ESP32-S3/C3 (USB-JTAG nativo), incluido el reset automático por DTR/RTS.
+17. avrdude de Ubuntu 16.04 (6.2) con Uno, Nano con bootloader viejo, Mega 2560 (`wiring`, `-D`) y
+    Leonardo (toque de 1200 baudios y cambio de puerto), y un USBasp por ISP.
+18. Que cerrar y reabrir el monitor serie durante una grabación funcione con los drivers reales
+    (cdc_acm, cp210x, ch341) del kernel 4.9.

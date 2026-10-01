@@ -35,15 +35,12 @@
       <div class="card">
         <h2>Target</h2>
         <label class="field">
-          <span>Chip</span>
+          <span>Placa / chip</span>
           <select id="sel-chip"></select>
         </label>
         <div class="field">
           <span>Método</span>
-          <div class="segmented" id="seg-method" role="radiogroup">
-            <button type="button" data-method="swd" role="radio">ST-Link (SWD)</button>
-            <button type="button" data-method="dfu" role="radio">USB DFU</button>
-          </div>
+          <div class="segmented" id="seg-method" role="radiogroup"></div>
         </div>
 
         <div id="swd-fields">
@@ -66,11 +63,21 @@
           </div>
           <p class="note">Bootloader: <strong id="boot-desc">—</strong></p>
         </div>
+
+        <div id="serial-fields" hidden>
+          <div class="field">
+            <span>Puerto serie de la placa <button type="button" class="link small" id="btn-refresh-ports">actualizar</button></span>
+            <select id="sel-prog-port"></select>
+            <small id="port-note" class="note"></small>
+          </div>
+        </div>
+        <p id="isp-note" class="note" hidden>Programador ISP (USBasp) por USB: no usa puerto serie.</p>
       </div>
 
       <div class="card">
         <h2>Firmware</h2>
         <div id="fw-selected" class="fw-selected empty">Elegí un archivo en la pestaña <em>Archivos</em></div>
+        <p id="fw-target-warn" class="note warn-text" hidden></p>
         <label class="field" id="addr-field" hidden>
           <span>Dirección de carga (.bin)</span>
           <input id="inp-address" type="text" spellcheck="false" autocomplete="off" placeholder="0x08000000">
@@ -90,8 +97,9 @@
           <button class="btn" data-action="reset" type="button">Reset</button>
           <button class="btn" data-action="halt" type="button">Halt</button>
           <button class="btn" data-action="resume" type="button">Run</button>
+          <button class="btn" data-action="info" type="button" title="Lee qué chip está conectado">Identificar</button>
         </div>
-        <p id="dfu-reason" class="note info" hidden></p>
+        <p id="method-reason" class="note info" hidden></p>
         <div id="job-box" class="job-box" hidden>
           <div class="job-line"><i class="spinner"></i><span id="job-desc"></span></div>
           <button class="btn small" id="btn-cancel" type="button">Cancelar</button>
@@ -131,6 +139,7 @@
           <div id="dropzone" class="dropzone" tabindex="0">
             <input type="file" id="file-input" accept=".elf,.hex,.bin" multiple hidden>
             <div>Arrastrá <strong>.elf</strong>, <strong>.hex</strong> o <strong>.bin</strong> acá, o <button type="button" class="link" id="btn-pick">elegí archivos</button></div>
+            <label class="inline">Placa <select id="sel-upload-target" class="upload-target"></select></label>
             <label class="inline">Proyecto <input id="inp-project" type="text" value="general" spellcheck="false" autocomplete="off"></label>
             <small class="muted" id="upload-limit"></small>
           </div>

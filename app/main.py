@@ -104,6 +104,9 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         bench.bus.attach_loop(loop)
         if settings.mock:
             sample_firmware.seed_projects(settings.projects_dir)
+            for rel, target in sample_firmware.DEMO_TARGETS.items():
+                if (settings.projects_dir / rel).is_file() and bench.meta.target_of(rel) is None:
+                    bench.meta.assign(rel, target)
             if settings.generated_password:
                 print("\n" + "=" * 64)
                 print(f"  MODO MOCK — usuario: {settings.username}   contraseña: {settings.generated_password}")

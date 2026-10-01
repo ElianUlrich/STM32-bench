@@ -292,6 +292,39 @@ def diagrama_software() -> Drawing:
     return d
 
 
+def diagrama_vinculo() -> Drawing:
+    """Diagrama 4: cómo se evita grabar un binario en la placa equivocada."""
+    d = Drawing(495, 330)
+    cols = [(0, ACENTO, ACENTO_SUAVE), (170, AZUL, AZUL_SUAVE), (340, AMBAR, AMBAR_SUAVE)]
+    w = 155
+    caja(d, 40, 292, 415, 34, ["1 · Subir el archivo eligiendo la placa (o asignarla después)",
+                               "si el contenido no corresponde a esa placa, se rechaza explicando el motivo"],
+         fondo=GRIS_FONDO, borde=GRIS_BORDE, tam=8.2)
+    revisiones = [["2 · STM32 (.elf / .hex / .bin)", "ELF de arquitectura ARM", "direcciones dentro de la flash",
+                   "tamaño ≤ flash del chip"],
+                  ["2 · ESP (.bin)", "encabezado 0xE9", "ID de chip del encabezado", "offset del bootloader"],
+                  ["2 · Arduino / AVR (.hex)", "Intel HEX válido", "entra en la flash del chip",
+                   "no pisa el bootloader"]]
+    for (x, borde, fondo), lineas in zip(cols, revisiones):
+        flecha(d, [(x + w / 2, 292), (x + w / 2, 262)])
+        caja(d, x, 200, w, 62, lineas, fondo=fondo, borde=borde, tam=8)
+        flecha(d, [(x + w / 2, 200), (x + w / 2, 180)])
+    caja(d, 40, 150, 415, 30, ["3 · Vínculo archivo → placa", "firmware_meta.json en /var/lib/stm32-bench"],
+         tam=8.2)
+    flecha(d, [(247.5, 150), (247.5, 132)])
+    caja(d, 40, 98, 415, 34, ["4 · Grabar", "exige: placa asignada = placa elegida · se vuelve a revisar el contenido"],
+         fondo=ACENTO_SUAVE, tam=8.2)
+    chequeos = [["OpenOCD", "lee DBGMCU_IDCODE", "(0x474 = STM32H503)"],
+                ["esptool --chip", "compara con el chip", "que responde"],
+                ["avrdude -p", "lee la firma del chip", "(1E 95 0F = ATmega328P)"]]
+    for (x, borde, fondo), lineas in zip(cols, chequeos):
+        flecha(d, [(x + w / 2, 98), (x + w / 2, 74)])
+        caja(d, x, 24, w, 50, lineas, fondo=fondo, borde=borde, tam=8)
+    etiqueta(d, 247.5, 8, "5 · Antes de escribir, la herramienta confirma el chip conectado; si no coincide, "
+             "aborta sin tocar la flash", tam=7.4, color=TEXTO)
+    return d
+
+
 def diagrama_dfu() -> Drawing:
     """Diagrama 3: flujo de una operación por USB DFU."""
     d = Drawing(495, 352)
@@ -427,23 +460,25 @@ def contenido() -> list:
 
     # ---- Portada
     s += [Spacer(1, 40 * mm),
-          P("Banco de programación y debug remoto para STM32", "titulo"),
-          P("BeagleBoard-xM · OpenOCD (SWD) · USB DFU · acceso por Tailscale", "subtitulo"),
+          P("Banco de programación y debug remoto para STM32, ESP32 y Arduino", "titulo"),
+          P("BeagleBoard-xM · OpenOCD (SWD) · USB DFU · esptool · avrdude · acceso por Tailscale", "subtitulo"),
           Spacer(1, 6 * mm),
           P(f"Documento de trabajo — actualizado al {fecha}", "cuerpo"),
           P("Estado: la aplicación está instalada y funcionando en la BeagleBoard-xM, con acceso remoto por "
             "Tailscale, y la conexión SWD con el STM32H503 está verificada. En curso: flasheo del firmware de "
-            "prueba y depuración remota con GDB.", "cuerpo"),
+            "prueba y depuración remota con GDB. Se agregó soporte para ESP32/ESP8266 y Arduino (AVR), con cada "
+            "binario vinculado a su placa; está probado en simulación y falta probarlo con placas reales.", "cuerpo"),
           Spacer(1, 10 * mm),
           recuadro("<b>Resumen.</b> Una BeagleBoard-xM sin pantalla ni teclado, ubicada en un banco de laboratorio, "
-                   "funciona como programador y depurador remoto de microcontroladores STM32. Desde el navegador de "
+                   "funciona como programador y depurador remoto de microcontroladores STM32, ESP32 y Arduino. Desde el navegador de "
                    "una PC en otro lugar, conectada por una VPN Tailscale, se sube el firmware, se programa el chip "
-                   "por ST-Link (SWD) o por el bootloader USB DFU de ST, se depura con GDB, se ve la salida en vivo "
+                   "por ST-Link (SWD), por el bootloader USB DFU de ST o por puerto serie (esptool para ESP32, avrdude "
+                   "para Arduino), se depura con GDB, se ve la salida en vivo "
                    "y un monitor serie, y se controla la placa (apagar / reiniciar)."),
           Spacer(1, 12 * mm),
           P("<b>Contenido</b>", "h2")]
     indice = ["Resumen en siete pasos", "1. La idea", "2. Arquitectura del sistema (diagrama de bloques)",
-              "3. Arquitectura de software (diagrama de bloques)", "4. Métodos de programación: SWD y USB DFU",
+              "3. Arquitectura de software (diagrama de bloques)", "4. Métodos de programación: STM32, ESP32 y Arduino",
               "5. Seguridad", "6. Configuración", "7. Desarrollo y pruebas sin hardware",
               "8. Puesta en marcha de la BeagleBoard-xM (bitácora)", "9. Firmware de prueba para el STM32H503",
               "10. Lecciones aprendidas", "11. Próximos pasos",
@@ -470,12 +505,13 @@ def contenido() -> list:
                  ["5 · Firmware de prueba", "Tres programas cortos para el H503 con LEDs en PA0–PA7: parpadeo, luz "
                                             "que va y viene y contador binario."],
                  ["6 · El problema real", "Desde la PC conectaba y desde la placa no: faltaba la masa común (GND) "
-                                          "y la xM tiene poca alimentación en sus USB. Resuelto eso, conectó."],
+                                          "entre el ST-Link y la placa del micro. Con ese cable, conectó."],
                  ["7 · Resultado", "Flashear desde el navegador, iniciar el servidor GDB y, desde la PC, detener el "
                                    "micro, leer una variable, cambiarla y ver a los LEDs responder."]],
                 [38, 132]),
           Spacer(1, 6),
-          recuadro("El chip se elige desde un archivo de configuración, así que el banco sirve para cualquier STM32. "
+          recuadro("El chip se elige desde un archivo de configuración, así que el banco sirve para cualquier STM32 y, "
+                   "desde la última versión, también para ESP32/ESP8266 y Arduino (28 placas en el catálogo). "
                    "Todo el código, los scripts y este documento están versionados en GitHub "
                    "(repositorio privado ElianUlrich/STM32-bench).")]
     s.append(PageBreak())
@@ -495,6 +531,10 @@ def contenido() -> list:
         "completa, reset, halt y run.",
         "<b>Dos métodos de conexión</b> seleccionables por chip o por operación: ST-Link por SWD con OpenOCD "
         "(programación y debug) y USB DFU con dfu-util (sólo programación, sin debug).",
+        "<b>Otras familias</b>: ESP32/ESP8266 por puerto serie con esptool y Arduino (AVR) con avrdude, por "
+        "su bootloader o con un programador ISP.",
+        "<b>No grabar el micro equivocado</b>: cada binario se sube indicando para qué placa es; la app revisa "
+        "el contenido y, antes de escribir, confirma el chip conectado.",
         "<b>Depurar remotamente</b> con GDB: arm-none-eabi-gdb, VS Code (Cortex-Debug) o STM32CubeIDE.",
         "<b>Gestionar el firmware</b>: subir .elf/.hex/.bin arrastrando al navegador o sincronizar una carpeta "
         "con Syncthing.",
@@ -508,7 +548,8 @@ def contenido() -> list:
                  ["Placa", "BeagleBoard-xM: TI DM3730 (Cortex-A8, ARMv7, armhf), 512 MB de RAM, arranque desde "
                            "microSD, 4 puertos USB host, Ethernet. Sin pantalla, teclado ni mouse (headless)."],
                  ["Programador", "ST-Link V2 / V2-1 / V3, integrado en Nucleo/Discovery o externo, por USB."],
-                 ["Chips actuales", "STM32H503CBT6 (Cortex-M33, serie H5) y STM32H723VGT6 (Cortex-M7, serie H7)."],
+                 ["Chips actuales", "STM32H503CBT6 (Cortex-M33, serie H5) y STM32H723VGT6 (Cortex-M7, serie H7); "
+                                    "además ESP32 (todas las variantes) y Arduino Uno, Nano, Mega, Leonardo, etc."],
                  ["Red", "La PC y la placa se conectan por Tailscale. No se abren puertos en el router."],
                  ["Liviandad", "Pocos recursos: backend Python (FastAPI), frontend sin compilación ni Node."],
                  ["Operación", "Servicios con systemd; arranque automático; usuario sin privilegios."]],
@@ -532,6 +573,9 @@ def contenido() -> list:
         "<b>OpenOCD</b> (fork oficial de ST, el de STM32CubeIDE): programa por SWD y, en modo servidor, expone "
         "el puerto GDB 3333. Se compila en la placa porque el de los repositorios es viejo para H5/H7.",
         "<b>dfu-util</b>: programa por USB a través del bootloader de sistema del STM32 (VID:PID 0483:df11).",
+        "<b>esptool y avrdude</b>: programan ESP32/ESP8266 y Arduino por el puerto USB-serie de cada placa "
+        "(/dev/ttyUSB* o /dev/ttyACM*). No aparecen en la figura para no recargarla: se conectan igual que "
+        "el monitor serie.",
         "<b>ST-Link</b>: conectado por USB a la placa y por SWD (SWDIO, SWCLK, GND, NRST) al STM32.",
         "<b>USB del propio STM32</b> (PA11/PA12): usado para DFU. En una Nucleo es un conector distinto al del "
         "ST-Link, así que pueden estar los dos enchufados.",
@@ -567,7 +611,8 @@ def contenido() -> list:
           Spacer(1, 8)]
 
     # ---- 4. Métodos
-    s += [P("4. Métodos de programación: SWD y USB DFU", "h1"),
+    s += [P("4. Métodos de programación: STM32, ESP32 y Arduino", "h1"),
+          P("STM32: ST-Link (SWD) y USB DFU", "h2"),
           P("Cada chip declara en <b>chips.yaml</b> qué métodos soporta y sus parámetros. La interfaz sólo "
             "habilita los métodos disponibles y, con DFU, deshabilita lo que el bootloader no puede hacer, "
             "explicando el motivo."),
@@ -608,6 +653,49 @@ openocd -s /usr/local/share/openocd/scripts
                   "Soporte en el firmware (dirección de System Memory según AN2606)."]],
                 [26, 92, 52]),
           Spacer(1, 10)]
+
+    s += [P("ESP32 / ESP8266 (esptool) y Arduino / AVR (avrdude)", "h2"),
+          P("Se agregaron dos métodos más, que usan el puerto USB-serie de cada placa. Cada placa del catálogo "
+            "declara su método y sus parámetros; la interfaz agrupa las placas por familia, pide el puerto serie y "
+            "deshabilita (explicando el motivo) lo que el método no puede hacer."),
+          tabla([["Acción", "ESP32 / ESP8266 — esptool", "Arduino — avrdude"],
+                 ["Flashear", "write_flash en 0x10000 (app) o 0x0 (imagen combinada), modo/frecuencia/tamaño "
+                              "“keep”", "-U flash:w:archivo.hex:i (con -D en el Mega)"],
+                 ["Verificar", "verify_flash (compara el hash)", "-U flash:v:archivo.hex:i"],
+                 ["Borrar", "erase_flash", "sólo con programador ISP (-e); el bootloader no borra"],
+                 ["Reset", "reset por DTR/RTS", "pulso de DTR (o toque de 1200 baudios en 32U4)"],
+                 ["Identificar", "flash_id con --chip auto", "lee la firma del chip"],
+                 ["Halt / Run / GDB", "no (haría falta JTAG)", "no"]],
+                [26, 76, 68]),
+          Spacer(1, 6),
+          *vinetas([
+              "<b>Catálogo</b>: 28 placas en chips.yaml: 7 STM32, 11 Espressif (ESP8266, ESP32, S2, S3, C2, C3, C5, "
+              "C6, C61, H2, P4) y 10 AVR (Uno, Nano con bootloader nuevo y viejo, Pro Mini, Duemilanove, Mega 2560 "
+              "y 1280, Leonardo, Micro y un ATmega328P genérico con USBasp).",
+              "<b>Qué archivo se sube</b>: en Arduino IDE, <i>Exportar binario compilado</i>. Para ESP32, el "
+              ".ino.bin (sólo la aplicación) o el .ino.merged.bin (bootloader + particiones + app); la app "
+              "reconoce cuál es y elige la dirección. Para AVR, el .ino.hex sin bootloader.",
+              "<b>Leonardo y Micro</b> (ATmega32U4): la app abre el puerto a 1200 baudios para que el chip salte "
+              "al bootloader, espera el puerto nuevo que aparece y graba ahí.",
+              "<b>Monitor serie</b>: si tiene abierto el mismo puerto, se cierra durante la grabación y se vuelve "
+              "a abrir al terminar.",
+              "<b>Instalación</b>: avrdude desde apt; esptool 4.12 con pip --no-deps, porque su dependencia "
+              "cryptography (sólo la usa espsecure) no tiene wheel para la placa.",
+          ])]
+
+    s += [P("Vínculo binario ↔ placa", "h2"),
+          P("Con placas de tres familias en el mismo banco, grabar un binario en el micro equivocado es fácil. "
+            "Por eso cada archivo se sube indicando para qué placa es, y la protección tiene tres capas "
+            "(figura 4): se revisa el contenido del archivo, se exige que la placa elegida sea la del archivo y, "
+            "antes de escribir, la herramienta confirma el chip conectado. En STM32 esta última capa es nueva: "
+            "OpenOCD lee el registro DBGMCU_IDCODE y aborta con “CHIP EQUIVOCADO” si no coincide con el "
+            "esperado."),
+          figura(diagrama_vinculo(), "Figura 4 — Las tres capas que evitan grabar un binario en la placa equivocada."),
+          recuadro("<b>Limitación.</b> Un .hex de AVR no dice para qué chip fue compilado: un sketch de Uno y uno de "
+                   "Nano (el mismo ATmega328P) son indistinguibles. Ahí la protección es la asignación al subirlo "
+                   "más la firma que verifica avrdude. En el ESP8266 el encabezado tampoco trae el ID de chip.",
+                   fondo=AMBAR_SUAVE, borde=AMBAR),
+          Spacer(1, 8)]
 
     # ---- 5. Seguridad
     s += [P("5. Seguridad", "h1"),
@@ -655,9 +743,10 @@ openocd -s /usr/local/share/openocd/scripts
 """),
           Spacer(1, 6),
           tabla([["Archivo", "Contenido"],
-                 ["chips.yaml", "Catálogo de chips: H503, H723 y ejemplos F1, F4, L4, G0, G4. Al arrancar se "
-                                "verifica que los .cfg existan en el OpenOCD instalado."],
-                 ["bench.yaml", "Binarios y timeouts de OpenOCD/dfu-util, interfaces (stlink = HLA, stlink-dap = "
+                 ["chips.yaml", "Catálogo de 28 placas: STM32 (H503, H723 y ejemplos F1, F4, L4, G0, G4, cada uno con "
+                                "su IDCODE), ESP32/ESP8266 y Arduino. Al arrancar se verifica que los .cfg "
+                                "existan en el OpenOCD instalado."],
+                 ["bench.yaml", "Binarios y timeouts de OpenOCD, dfu-util, esptool y avrdude, interfaces (stlink = HLA, stlink-dap = "
                                 "dapdirect), puerto y bind del GDB, tamaño máximo de subida, baudrates, redes "
                                 "permitidas, BootControl."],
                  ["bench.env", "Usuario, hash de la contraseña, clave de sesión y rutas. Lo genera install.sh."]],
@@ -667,7 +756,7 @@ openocd -s /usr/local/share/openocd/scripts
     # ---- 7. Desarrollo y pruebas
     s += [P("7. Desarrollo y pruebas sin hardware", "h1"),
           P("Para desarrollar en la PC (Windows) sin la placa, el <b>modo simulación</b> (BENCH_MOCK=1) reemplaza "
-            "OpenOCD y dfu-util por simuladores que se ejecutan como procesos reales, así el camino de "
+            "OpenOCD, dfu-util, esptool y avrdude por simuladores que se ejecutan como procesos reales, así el camino de "
             "ejecución y el log en vivo son los mismos que en la placa. También simula dos ST-Link, la aparición "
             "del dispositivo DFU al entrar al bootloader, un puerto serie y los datos del sistema. Se crean "
             "proyectos de ejemplo, incluidos casos de error (hueco entre segmentos, datos en flash externa, "
@@ -675,7 +764,7 @@ openocd -s /usr/local/share/openocd/scripts
           bloque_codigo("powershell -ExecutionPolicy Bypass -File scripts\\dev_run.ps1   # http://127.0.0.1:8080"),
           Spacer(1, 6),
           P("Pruebas automáticas", "h2"),
-          P("158 tests con pytest, todos pasando. Cubren:")]
+          P("198 tests con pytest, todos pasando (uno se omite en Windows). Cubren:")]
     s += vinetas([
         "Validación de archivos: nombres, extensiones, tamaño, contenido (ELF ARM de 32 bits, Intel HEX), "
         "path traversal y symlinks.",
@@ -689,6 +778,11 @@ openocd -s /usr/local/share/openocd/scripts
         "API: login, redes permitidas, CSRF, trabajos concurrentes (409), bloqueo por servidor GDB activo, "
         "monitor serie, apagado.",
         "Autenticación: hash scrypt y respaldo PBKDF2 cuando hashlib.scrypt no existe.",
+        "ESP32 y Arduino: análisis de .bin (ID de chip, imagen combinada, offset del bootloader) y de .hex "
+        "(tamaño, bootloader), comandos de esptool y avrdude, puertos inválidos, toque de 1200 baudios y "
+        "liberación del monitor serie.",
+        "Vínculo binario ↔ placa: subida sin placa, placa incompatible, reasignación, grabación rechazada en "
+        "otra placa, firma AVR distinta y chip STM32 equivocado (IDCODE).",
     ])
     s += [P("Pruebas en el navegador", "h2"),
           P("Con la app en modo simulación se recorrieron los flujos principales: flasheo por SWD con log en vivo, "
@@ -702,12 +796,17 @@ openocd -s /usr/local/share/openocd/scripts
               "El navegador usaba CSS/JS viejos de la caché: los archivos estáticos ahora se sirven con "
               "Cache-Control: no-cache (revalidación con ETag).",
               "La lista de archivos repetía el nombre del proyecto como subcarpeta.",
-          ])]
+          ]),
+          P("Con ESP32 y Arduino se probó: grabar un Uno desde la web, que al elegir un archivo se seleccione "
+            "sola su placa, que un binario de ESP32-S3 no se pueda grabar en un ESP32 (el botón queda "
+            "deshabilitado con el motivo) y grabar una imagen combinada de ESP32 en 0x0 con el hash verificado. "
+            "Se corrigieron dos errores: la validación al subir usaba la extensión del archivo temporal (.part) "
+            "y el puerto serie elegido para una placa se arrastraba a otra (ahora se recuerda por placa).")]
     s.append(PageBreak())
 
     # ---- 8. Bitácora
     s += [P("8. Puesta en marcha de la BeagleBoard-xM (bitácora)", "h1"),
-          figura(diagrama_estado(), f"Figura 4 — Pasos de la puesta en marcha y su estado al {fecha}."),
+          figura(diagrama_estado(), f"Figura 5 — Pasos de la puesta en marcha y su estado al {fecha}."),
           P("8.1 Estado inicial encontrado", "h2"),
           tabla([["Elemento", "Encontrado"],
                  ["Sistema", "Ubuntu 16.04 LTS, imagen de consola de rcn-ee (Robert C. Nelson) del 23/01/2017."],
@@ -832,7 +931,7 @@ sudo tailscale up --hostname=banco-stm32     # se autoriza abriendo el enlace en
             "el router le asigne siempre la misma IP."),
           PageBreak(),
           P("8.12 Primera conexión con el STM32H503 (diagnóstico)", "h2"),
-          figura(diagrama_conexion(), "Figura 5 — Cableado del banco: BeagleBoard-xM, ST-LINK/V2 (conector de "
+          figura(diagrama_conexion(), "Figura 6 — Cableado del banco: BeagleBoard-xM, ST-LINK/V2 (conector de "
                  "20 pines) y placa del STM32H503."),
           P("El programador es un <b>ST-LINK/V2 original</b> (firmware V2J46S7, compatible con el modo dapdirect "
             "que necesita el H5). Su número de serie es binario, como en todos los V2 viejos; la app lo convierte "
@@ -849,15 +948,16 @@ sudo tailscale up --hostname=banco-stm32     # se autoriza abriendo el enlace en
                  ["De vuelta en la placa, con cable de GND", "Avanza más: “Fail reading CTRL/STAT register”",
                   "Faltaba la masa común"],
                  ["dmesg en la placa", "El Ethernet se cae y vuelve (eth0 link down / link up)",
-                  "Caídas de alimentación en el LAN9514, el chip que también alimenta los USB"],
-                 ["Menos carga en los USB de la placa", "“Examination succeed” y Reset enviado",
+                  "Después se vio que era el cable de red flojo, no la alimentación"],
+                 ["Con GND conectado y menos carga en los USB", "“Examination succeed” y Reset enviado",
                   "Conexión SWD funcionando desde la BeagleBoard"]],
                 [52, 62, 56]),
           Spacer(1, 6),
-          P("<b>Causa:</b> la combinación de la falta de un cable de masa entre el ST-Link y la placa del micro "
-            "(desde la PC funcionaba porque todo compartía la masa de sus USB) y la alimentación justa de los USB "
-            "de la xM. Queda para revisar la capacidad de la fuente de 5 V de la placa y, si hace falta, usar un "
-            "hub USB con fuente propia. La velocidad SWD del H503 se bajó a 1000 kHz en "
+          P("<b>Causa:</b> principalmente la falta de un cable de masa entre el ST-Link y la placa del micro "
+            "(desde la PC funcionaba porque todo compartía la masa de sus USB). Las caídas del Ethernet que "
+            "mostraba dmesg resultaron ser un cable de red flojo y no un problema de alimentación. Igual conviene "
+            "revisar la capacidad de la fuente de 5 V de la placa y, si hace falta, usar un hub USB con fuente "
+            "propia. La velocidad SWD del H503 se bajó a 1000 kHz en "
             "/etc/stm32-bench/chips.yaml, un valor más tolerante con cables largos."),
           P("Queda un aviso no bloqueante: al conectar, el script " + c("target/stm32h5x.cfg") + " de esta versión "
             "de OpenOCD intenta configurar DBGMCU (depuración en bajo consumo y watchdogs detenidos) y esa "
@@ -922,6 +1022,13 @@ arm-none-eabi-gdb 03_contador_binario.elf
         "(LAN9514) y comparten alimentación; la MAC es aleatoria en cada arranque; no tiene pila para el reloj.",
         "<b>El STM32H5 necesita el modo dapdirect (stlink-dap)</b>, porque su CPU está en el AP 1; un ST-LINK/V2 "
         "original con firmware reciente lo soporta.",
+        "<b>Una causa a la vez.</b> Las caídas de Ethernet parecían un problema de alimentación y eran un "
+        "cable flojo; el SWD se arregló con la masa. Mezclar síntomas lleva a conclusiones equivocadas.",
+        "<b>Con varias familias en el banco, el archivo tiene que saber para qué placa es.</b> Los .bin de ESP "
+        "traen el ID del chip y los STM32 exponen su IDCODE, pero un .hex de AVR no dice nada: la asignación "
+        "explícita al subir cubre ese hueco.",
+        "<b>Dependencias en una placa vieja</b>: esptool trae cryptography, que no compila en armhf con "
+        "OpenSSL 1.0.2; como sólo la usa espsecure, se instala con --no-deps.",
         "<b>Documentar mientras se trabaja</b> (este documento se genera desde un script y se actualiza en cada "
         "paso) evita reconstruir de memoria lo que pasó.",
     ])
@@ -938,7 +1045,10 @@ arm-none-eabi-gdb 03_contador_binario.elf
                  ["MAC fija", "Fijar la dirección MAC de eth0 para que la IP de la red local no cambie."],
                  ["Despliegue por git", "Clonar el repositorio desde GitHub en la placa (con un token de sólo "
                                         "lectura) para actualizar con git pull."],
-                 ["USB DFU", "Probar el bootloader USB del H503 (backend manual) con .bin, .hex y .elf."],
+                 ["USB DFU", "El H503 entra al bootloader pero la BeagleBoard no lo enumera: probar el mismo "
+                             "cable USB-C en la PC (puede ser sólo de carga) y otro puerto de la xM."],
+                 ["ESP32 y Arduino", "Instalar la versión nueva en la placa y probar Identificar en el H503 "
+                                     "(IDCODE real), un ESP32 y un Arduino Uno reales."],
                  ["microSD más grande", "Con 8 GB o más: partición de datos y sistema en solo lectura."]],
                 [38, 132]),
           Spacer(1, 6),
@@ -949,6 +1059,9 @@ arm-none-eabi-gdb 03_contador_binario.elf
         "DFU real: dfu-util -l, :leave, verificación con -U y mass-erase sin -D.",
         "Monitor serie con un VCP; apagar y reiniciar desde la web.",
         "Dos ST-Link conectados a la vez (selección por número de serie).",
+        "Identificar en STM32: el Tcl read_memory sobre DBGMCU_IDCODE con el OpenOCD de ST.",
+        "esptool 4.12 sin cryptography en la xM; ESP32 y ESP32-S3/C3 (USB-JTAG nativo) reales.",
+        "avrdude 6.2 de Ubuntu 16.04 con Uno, Nano con bootloader viejo, Mega 2560 y Leonardo (1200 baudios).",
     ])
 
     # ---- Anexos
@@ -957,13 +1070,16 @@ arm-none-eabi-gdb 03_contador_binario.elf
 app/                 backend (FastAPI)
   main.py            aplicación, middleware de seguridad, sesiones, estáticos
   api.py             rutas /api/...
-  bench.py           servicio central: valida pedidos y arma trabajos SWD/DFU
+  bench.py           servicio central: valida pedidos y arma trabajos SWD/DFU/ESP/AVR
   settings.py        variables de entorno y bench.yaml
-  chips.py           chips.yaml y verificación de .cfg
+  chips.py           chips.yaml (28 placas) y verificación de .cfg
+  compat.py          ¿este archivo es para esta placa? (ARM / ESP / AVR)
+  firmware_meta.py   vínculo archivo -> placa
   files.py           validación, subida, escaneo y borrado de firmware
   convert.py         .elf/.hex -> .bin para DFU
   probe.py           ST-Link por sysfs y dispositivos DFU
-  programmers/       capacidades, comandos OpenOCD y dfu-util, JobRunner, GdbServer
+  programmers/       capacidades; comandos de OpenOCD, dfu-util, esptool y avrdude;
+                     JobRunner, GdbServer
   bootcontrol/       manual, gpio (libgpiod), comando serie, simulado
   serial_monitor.py  monitor serie (pyserial)
   system.py          estado del sistema, apagar/reiniciar
@@ -972,11 +1088,11 @@ app/                 backend (FastAPI)
 web/                 interfaz (HTML, CSS, JS sin dependencias)
 config/              chips.yaml, bench.yaml, bench.example.env
 scripts/             build_openocd.sh, prepare_ubuntu1604.sh, install.sh, hash_password.py,
-                     dev_run.ps1/.sh, simuladores de OpenOCD y dfu-util
+                     dev_run.ps1/.sh, simuladores de OpenOCD, dfu-util, esptool y avrdude
 deploy/              unidad systemd, reglas udev, plantilla de sudoers
 firmware/h503_leds/  firmware de prueba para STM32H503 (fuentes, Makefile, compilados)
 docs/                este documento y su generador
-tests/               158 tests (pytest)
+tests/               198 tests (pytest)
 """)]),
           KeepTogether([P("Anexo B. Comandos útiles", "h1"),
           bloque_codigo("""
@@ -986,6 +1102,7 @@ systemctl status stm32-bench         # estado del servicio
 journalctl -u stm32-bench -f         # log del servicio
 sudo systemctl restart stm32-bench   # reiniciar tras editar /etc/stm32-bench/*.yaml
 lsusb | grep 0483                    # ST-Link / DFU conectados
+ls /dev/ttyUSB* /dev/ttyACM*         # puertos serie (ESP32, Arduino, VCP)
 df -h / ; free -m                    # espacio y memoria
 ip link show eth0                    # NO-CARRIER = cable de red desconectado
 sudo systemctl restart tailscaled    # reconectar Tailscale

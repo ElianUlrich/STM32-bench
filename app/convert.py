@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 DEFAULT_GAP_WARN_BYTES = 4096
 FILL_BYTE = 0xFF
@@ -137,9 +137,12 @@ def build_bin(segments: List[Segment], flash_base: int, flash_end: int,
 
 
 def convert_to_bin(path: Path, flash_base: int, flash_end: int,
-                   gap_warn_bytes: int = DEFAULT_GAP_WARN_BYTES) -> BinImage:
-    """Convierte un .elf o .hex en BinImage."""
-    ext = path.suffix.lower()
+                   gap_warn_bytes: int = DEFAULT_GAP_WARN_BYTES, ext: Optional[str] = None) -> BinImage:
+    """Convierte un .elf o .hex en BinImage.
+
+    `ext` permite indicar el tipo cuando el archivo tiene otro nombre (p. ej. el
+    temporal de una subida, que termina en .part)."""
+    ext = (ext or path.suffix).lower()
     if ext == ".elf":
         segments = load_elf_segments(path)
     elif ext == ".hex":

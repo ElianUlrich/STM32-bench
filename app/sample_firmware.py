@@ -80,6 +80,43 @@ def demo_images() -> dict:
     }
 
 
+def esp_image(chip_id: int, size: int = 4096, entry: int = 0x40080000) -> bytes:
+    """Imagen de ESP mínima: cabecera (0xE9) + cabecera extendida con el ID de chip."""
+    header = bytes([0xE9, 1, 2, 0x20]) + struct.pack("<I", entry)
+    ext = bytes([0xEE, 0, 0, 0]) + struct.pack("<H", chip_id) + bytes(10)   # 16 bytes
+    body = bytes((i * 13 + 7) & 0xFF for i in range(max(size - len(header) - len(ext), 16)))
+    return header + ext + body
+
+
+def esp_merged(chip_id: int, bootloader_offset: int, app_size: int = 4096) -> bytes:
+    """Imagen combinada: bootloader en su offset, tabla de particiones en 0x8000, app en 0x10000."""
+    image = bytearray([0xFF]) * 0x10000
+    boot = esp_image(chip_id, 0x2000, entry=0x40078000)
+    image[bootloader_offset:bootloader_offset + len(boot)] = boot
+    image[0x8000:0x8002] = bytes([0xAA, 0x50])   # firma de la tabla de particiones
+    return bytes(image) + esp_image(chip_id, app_size)
+
+
+def avr_hex(size: int = 1024) -> bytes:
+    return to_ihex([(0, bytes((i * 5 + 1) & 0xFF for i in range(size)))]).encode()
+
+
+# Archivos de ejemplo del modo mock y la placa a la que corresponden.
+DEMO_TARGETS = {
+    "demo-blink/Debug/demo-blink.elf": "stm32h503cb",
+    "demo-blink/Debug/demo-blink.hex": "stm32h503cb",
+    "demo-blink/Debug/demo-blink.bin": "stm32h503cb",
+    "casos-dfu/con-hueco.hex": "stm32h723vg",
+    "casos-dfu/demo-falla.elf": "stm32h503cb",
+    f"{UPLOADS_DIRNAME}/general/subido-ejemplo.bin": "stm32h503cb",
+    "esp32-blink/build/esp32-blink.ino.bin": "esp32",
+    "esp32-blink/build/esp32-blink.ino.merged.bin": "esp32",
+    "esp32s3-demo/s3-demo.bin": "esp32-s3",
+    "arduino-blink/Blink.ino.hex": "arduino-uno",
+    "arduino-leonardo/Teclado.ino.hex": "arduino-leonardo",
+}
+
+
 def seed_projects(projects_dir: Path) -> None:
     """En modo mock, crea proyectos de ejemplo si el directorio está vacío."""
     projects_dir.mkdir(parents=True, exist_ok=True)
@@ -99,7 +136,21 @@ def seed_projects(projects_dir: Path) -> None:
     (casos / "demo-falla.elf").write_bytes(images["elf"])
     # Simula restos de Syncthing que el escaneo debe ignorar.
     (projects_dir / ".stfolder").mkdir()
-    (casos / ".syncthing.demo.hex.tmp").write_bytes(b":00000001FF\n")
+    (casos / ".syncthing.demo.hex.tmp").write_bytes(b":00000001FF" + bytes([10]))
     uploads = projects_dir / UPLOADS_DIRNAME / "general"
     uploads.mkdir(parents=True)
     (uploads / "subido-ejemplo.bin").write_bytes(images["bin"])
+    # ESP32 (aplicación suelta e imagen combinada), ESP32-S3 y Arduino.
+    esp = projects_dir / "esp32-blink" / "build"
+    esp.mkdir(parents=True)
+    (esp / "esp32-blink.ino.bin").write_bytes(esp_image(0, 8192))
+    (esp / "esp32-blink.ino.merged.bin").write_bytes(esp_merged(0, 0x1000))
+    s3 = projects_dir / "esp32s3-demo"
+    s3.mkdir()
+    (s3 / "s3-demo.bin").write_bytes(esp_image(9, 8192))
+    ard = projects_dir / "arduino-blink"
+    ard.mkdir()
+    (ard / "Blink.ino.hex").write_bytes(avr_hex(924))
+    leo = projects_dir / "arduino-leonardo"
+    leo.mkdir()
+    (leo / "Teclado.ino.hex").write_bytes(avr_hex(4800))

@@ -169,10 +169,12 @@ def _bench(settings, never_appears=False, backend="gpio"):
     return bench
 
 
-def _write(settings, rel, data):
+def _write(settings, rel, data, bench=None, target=None):
     path = settings.projects_dir / rel
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(data)
+    if bench is not None:
+        bench.meta.assign(rel, target)
 
 
 def _run_job(bench, req):
@@ -187,7 +189,7 @@ def _run_job(bench, req):
 
 def test_dfu_flash_hex_then_verify(settings):
     bench = _bench(settings)
-    _write(settings, "p/fw.hex", demo_images()["hex"])
+    _write(settings, "p/fw.hex", demo_images()["hex"], bench, "stm32h723vg")
     job = _run_job(bench, JobRequest(action="flash", chip="stm32h723vg", method="dfu", file="p/fw.hex"))
     assert job.state == "ok", job.message
     assert mock_state.dfu_present(settings.state_dir) is None   # salió del bootloader
@@ -198,8 +200,8 @@ def test_dfu_flash_hex_then_verify(settings):
 
 def test_dfu_verify_detects_mismatch(settings):
     bench = _bench(settings)
-    _write(settings, "p/a.bin", b"\x01" * 64)
-    _write(settings, "p/b.bin", b"\x02" * 64)
+    _write(settings, "p/a.bin", b"\x01" * 64, bench, "stm32h723vg")
+    _write(settings, "p/b.bin", b"\x02" * 64, bench, "stm32h723vg")
     assert _run_job(bench, JobRequest(action="flash", chip="stm32h723vg", method="dfu", file="p/a.bin")).state == "ok"
     job = _run_job(bench, JobRequest(action="verify", chip="stm32h723vg", method="dfu", file="p/b.bin"))
     assert job.state == "error" and "0x08000000" in job.message
@@ -208,17 +210,19 @@ def test_dfu_verify_detects_mismatch(settings):
 def test_dfu_gap_warning_and_external_flash_error(settings):
     bench = _bench(settings)
     images = demo_images()
-    _write(settings, "c/gap.hex", images["hex_gap"])
-    _write(settings, "c/ext.hex", images["hex_ext"])
+    _write(settings, "c/gap.hex", images["hex_gap"], bench, "stm32h723vg")
+    _write(settings, "c/ext.hex", images["hex_ext"], bench, "stm32h723vg")
     job = _run_job(bench, JobRequest(action="flash", chip="stm32h723vg", method="dfu", file="c/gap.hex"))
     assert job.state == "ok" and any("discontinuos" in w for w in job.warnings)
-    job = _run_job(bench, JobRequest(action="flash", chip="stm32h723vg", method="dfu", file="c/ext.hex"))
-    assert job.state == "error" and "fuera de la flash" in job.message
+    # Un .hex con datos fuera de la flash se rechaza ANTES de empezar el trabajo.
+    from app.bench import RequestError
+    with pytest.raises(RequestError, match="fuera de la flash"):
+        _run_job(bench, JobRequest(action="flash", chip="stm32h723vg", method="dfu", file="c/ext.hex"))
 
 
 def test_dfu_timeout_when_device_never_appears(settings):
     bench = _bench(settings, never_appears=True)
-    _write(settings, "p/fw.bin", b"\x00" * 16)
+    _write(settings, "p/fw.bin", b"\x00" * 16, bench, "stm32h503cb")
     job = _run_job(bench, JobRequest(action="flash", chip="stm32h503cb", method="dfu", file="p/fw.bin"))
     assert job.state == "error" and "No apareció" in job.message
 
@@ -226,7 +230,7 @@ def test_dfu_timeout_when_device_never_appears(settings):
 def test_dfu_erase_and_leave_error_is_benign(settings, monkeypatch):
     monkeypatch.setenv("BENCH_MOCK_DFU_LEAVE_ERROR", "1")
     bench = _bench(settings, backend="manual")
-    _write(settings, "p/fw.bin", b"\x00" * 16)
+    _write(settings, "p/fw.bin", b"\x00" * 16, bench, "stm32h503cb")
     job = _run_job(bench, JobRequest(action="flash", chip="stm32h503cb", method="dfu", file="p/fw.bin"))
     assert job.state == "ok", job.message
     assert any("BOOT0" in w for w in job.warnings)   # manual: recordar bajar BOOT0
@@ -236,11 +240,11 @@ def test_dfu_erase_and_leave_error_is_benign(settings, monkeypatch):
 
 def test_swd_flash_in_mock(settings):
     bench = _bench(settings)
-    _write(settings, "p/fw.elf", demo_images()["elf"])
+    _write(settings, "p/fw.elf", demo_images()["elf"], bench, "stm32h723vg")
     job = _run_job(bench, JobRequest(action="flash", chip="stm32h723vg", file="p/fw.elf",
                                      probe_serial="066DFF485550755187121832"))
     assert job.state == "ok", job.message
-    _write(settings, "p/fw-falla.elf", demo_images()["elf"])
+    _write(settings, "p/fw-falla.elf", demo_images()["elf"], bench, "stm32h723vg")
     job = _run_job(bench, JobRequest(action="flash", chip="stm32h723vg", file="p/fw-falla.elf",
                                      probe_serial="066DFF485550755187121832"))
     assert job.state == "error"

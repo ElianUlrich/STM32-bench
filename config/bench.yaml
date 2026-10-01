@@ -8,6 +8,15 @@ openocd:
   default_interface: stlink-dap
   timeout_s: 180
 
+# ESP8266 / ESP32. Sin "binary" se usa "python -m esptool" del entorno de la app.
+esptool:
+  timeout_s: 300
+
+# Arduino / AVR
+avrdude:
+  binary: avrdude
+  timeout_s: 180
+
 dfu_util:
   # Se busca en el PATH: /usr/local/bin (compilado) antes que /usr/bin (apt).
   binary: dfu-util

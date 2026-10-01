@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Sequence, Tuple
 
-from ..chips import SwdParams
+from ..chips import IdCode, SwdParams
 from ..files import ensure_tcl_safe
 from ..settings import InterfaceConfig
 
@@ -82,6 +82,31 @@ def _needs_address(path: Path) -> bool:
     return path.suffix.lower() == ".bin"
 
 
+def idcode_check_cmd(idcode: IdCode, strict: bool = True) -> str:
+    """Tcl que lee el ID del chip conectado y lo compara con el esperado.
+
+    Sólo usa números de chips.yaml (validados), nunca texto del usuario. Con
+    strict=True, si el ID no coincide termina OpenOCD con error antes de tocar
+    la flash ("shutdown error"): así no se graba un binario en el chip equivocado.
+    """
+    addr, mask, value = _hex(idcode.address), f"0x{idcode.mask:X}", f"0x{idcode.value:X}"
+    leido = f"set _id [expr {{[lindex [read_memory {addr} 32 1] 0] & {mask}}}]"
+    if not strict:
+        return (leido + f"; echo [format \"ID del chip conectado: 0x%03X (esperado para esta placa: 0x%03X)\" "
+                f"$_id {value}]")
+    return (leido + f"; if {{$_id != {value}}} {{ echo [format \"CHIP EQUIVOCADO: se esperaba el ID 0x%03X y el "
+            f"chip conectado tiene 0x%03X. No se toca la flash.\" {value} $_id]; shutdown error }} else "
+            f"{{ echo [format \"Chip verificado: ID 0x%03X\" $_id] }}")
+
+
+def _init_checked(setup: OpenOcdSetup, swd: SwdParams) -> List[str]:
+    """init + verificación del ID del chip (si chips.yaml lo declara)."""
+    args = base_args(setup, swd) + ["-c", "init"]
+    if swd.idcode is not None:
+        args += ["-c", idcode_check_cmd(swd.idcode)]
+    return args
+
+
 def flash_args(setup: OpenOcdSetup, swd: SwdParams, firmware: Path, address: Optional[int]) -> List[str]:
     """program + verify + reset. Para .bin la dirección es obligatoria."""
     program = f"program {_tcl_path(firmware)}"
@@ -90,7 +115,7 @@ def flash_args(setup: OpenOcdSetup, swd: SwdParams, firmware: Path, address: Opt
             raise CommandError("Para un .bin hace falta la dirección de carga")
         program += f" {_hex(address)}"
     program += " verify reset exit"
-    return base_args(setup, swd) + ["-c", program]
+    return _init_checked(setup, swd) + ["-c", program]
 
 
 def verify_args(setup: OpenOcdSetup, swd: SwdParams, firmware: Path, address: Optional[int]) -> List[str]:
@@ -100,12 +125,12 @@ def verify_args(setup: OpenOcdSetup, swd: SwdParams, firmware: Path, address: Op
         if address is None:
             raise CommandError("Para un .bin hace falta la dirección de carga")
         verify += f" {_hex(address)} bin"
-    return base_args(setup, swd) + ["-c", "init", "-c", "halt", "-c", verify, "-c", "resume", "-c", "shutdown"]
+    return _init_checked(setup, swd) + ["-c", "halt", "-c", verify, "-c", "resume", "-c", "shutdown"]
 
 
 def erase_args(setup: OpenOcdSetup, swd: SwdParams) -> List[str]:
     """Borrado completo. Por defecto borra todos los sectores de cada banco."""
-    args = base_args(setup, swd) + ["-c", "init", "-c", "reset halt"]
+    args = _init_checked(setup, swd) + ["-c", "reset halt"]
     if swd.erase_cmds:
         for cmd in swd.erase_cmds:
             args += ["-c", cmd]
@@ -125,6 +150,14 @@ def halt_args(setup: OpenOcdSetup, swd: SwdParams) -> List[str]:
 
 def resume_args(setup: OpenOcdSetup, swd: SwdParams) -> List[str]:
     return base_args(setup, swd) + ["-c", "init", "-c", "resume", "-c", "shutdown"]
+
+
+def info_args(setup: OpenOcdSetup, swd: SwdParams) -> List[str]:
+    """Identificar: conecta, informa el ID del chip (sin cortar si no coincide) y sale."""
+    args = base_args(setup, swd) + ["-c", "init"]
+    if swd.idcode is not None:
+        args += ["-c", idcode_check_cmd(swd.idcode, strict=False)]
+    return args + ["-c", "shutdown"]
 
 
 def gdb_server_args(setup: OpenOcdSetup, swd: SwdParams, port: int, bind_ip: str) -> List[str]:

@@ -83,6 +83,10 @@ class BenchConfig:
     openocd_timeout_s: float = 180.0
     dfu_util_binary: str = "/usr/bin/dfu-util"
     dfu_util_timeout_s: float = 300.0
+    esptool_binary: Optional[str] = None      # None = "python -m esptool" del entorno de la app
+    esptool_timeout_s: float = 300.0
+    avrdude_binary: str = "avrdude"
+    avrdude_timeout_s: float = 180.0
     interfaces: Dict[str, InterfaceConfig] = field(default_factory=dict)
     gdb_port: int = 3333
     gdb_bind: str = "tailscale"
@@ -152,6 +156,8 @@ def parse_bench_config(data: Dict[str, Any]) -> BenchConfig:
 
     openocd = _get(data, "openocd", {})
     dfu = _get(data, "dfu_util", {})
+    esptool = _get(data, "esptool", {})
+    avrdude = _get(data, "avrdude", {})
 
     interfaces: Dict[str, InterfaceConfig] = {}
     for iid, raw in (_get(data, "interfaces", {}) or {}).items():
@@ -224,6 +230,10 @@ def parse_bench_config(data: Dict[str, Any]) -> BenchConfig:
         openocd_timeout_s=float(_get(openocd, "timeout_s", 180)),
         dfu_util_binary=str(_get(dfu, "binary", "dfu-util")),
         dfu_util_timeout_s=float(_get(dfu, "timeout_s", 300)),
+        esptool_binary=_get(esptool, "binary"),
+        esptool_timeout_s=float(_get(esptool, "timeout_s", 300)),
+        avrdude_binary=str(_get(avrdude, "binary", "avrdude")),
+        avrdude_timeout_s=float(_get(avrdude, "timeout_s", 180)),
         interfaces=interfaces,
         gdb_port=_as_int(_get(gdb, "port", 3333), "gdb.port", 1024, 65535),
         gdb_bind=bind,

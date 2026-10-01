@@ -18,7 +18,12 @@ SUBSYSTEM=="usb", ATTR{idVendor}=="0483", ATTR{idProduct}=="3757", MODE="0660", 
 # --- Bootloader USB DFU de ST (System Memory) ---
 SUBSYSTEM=="usb", ATTR{idVendor}=="0483", ATTR{idProduct}=="df11", MODE="0660", GROUP="plugdev", TAG+="uaccess"
 
+# --- Programadores ISP para AVR (avrdude -c usbasp / -c usbtiny) ---
+SUBSYSTEM=="usb", ATTR{idVendor}=="16c0", ATTR{idProduct}=="05dc", MODE="0660", GROUP="plugdev", TAG+="uaccess"
+SUBSYSTEM=="usb", ATTR{idVendor}=="1781", ATTR{idProduct}=="0c9f", MODE="0660", GROUP="plugdev", TAG+="uaccess"
+
 # --- GPIO (character device, usado por libgpiod para BOOT0/NRST) ---
 SUBSYSTEM=="gpio", KERNEL=="gpiochip*", GROUP="gpio", MODE="0660"
 
-# Los puertos serie (/dev/ttyACM*, /dev/ttyUSB*) ya son del grupo dialout.
+# Los puertos serie (/dev/ttyACM*, /dev/ttyUSB*) ya son del grupo dialout:
+# ahí aparecen los ESP32 (CP210x/CH340/USB-JTAG) y los Arduino (ATmega16U2, 32U4).

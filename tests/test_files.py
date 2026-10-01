@@ -114,7 +114,7 @@ def test_upload_content_checks(tmp_path, name, content, fragment):
 def test_upload_x86_elf_rejected(tmp_path):
     from app.sample_firmware import build_elf
     elf = build_elf([(0x1000, 0x1000, b"\x90" * 16)], machine=3)   # EM_386
-    with pytest.raises(f.FileValidationError, match="ARM"):
+    with pytest.raises(f.FileValidationError, match="microcontrolador"):
         f.save_upload(tmp_path, "p", "x.elf", io.BytesIO(elf), max_bytes=1 << 20)
 
 

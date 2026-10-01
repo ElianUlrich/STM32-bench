@@ -1,8 +1,13 @@
-"""Catálogo de chips (config/chips.yaml).
+"""Catálogo de placas y chips (config/chips.yaml).
 
-Cada chip declara qué métodos de programación soporta (swd, dfu) y los
-parámetros de cada uno. Todo lo que termina en un comando externo sale de acá
-(archivo de configuración del administrador), nunca de texto libre del usuario.
+Cada entrada declara qué métodos de programación soporta y sus parámetros:
+  * swd      STM32 con ST-Link y OpenOCD
+  * dfu      STM32 por el bootloader USB de ST (dfu-util)
+  * esptool  ESP8266 / ESP32 por su puerto serie USB (esptool)
+  * avrdude  Arduino AVR por el bootloader serie o un programador ISP (avrdude)
+
+Todo lo que termina en un comando externo sale de acá (archivo de
+configuración del administrador), nunca de texto libre del usuario.
 """
 from __future__ import annotations
 
@@ -15,12 +20,47 @@ import yaml
 
 from .settings import CFG_PATH_RE, ID_RE, ConfigError, _as_int, _get
 
-METHODS = ("swd", "dfu")
+METHODS = ("swd", "dfu", "esptool", "avrdude")
+# Métodos que programan a través de un puerto serie (se elige el puerto en la web).
+SERIAL_METHODS = ("esptool", "avrdude")
+
 VID_PID_RE = re.compile(r"^[0-9a-fA-F]{4}:[0-9a-fA-F]{4}$")
 TCL_VAR_NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]{0,31}$")
 TCL_VAR_VALUE_RE = re.compile(r"^[A-Za-z0-9_.x]{1,32}$")
 # Comandos Tcl de borrado definidos por el administrador: sin sustituciones.
 TCL_SAFE_CMD_RE = re.compile(r"^[A-Za-z0-9_ .x-]{1,128}$")
+
+# ESP: chip de esptool -> (IMAGE_CHIP_ID en la cabecera del .bin, offset del bootloader).
+# Valores tomados del código de esptool 4.12 (esptool/targets/*.py).
+ESP_CHIPS: Dict[str, Tuple[Optional[int], int]] = {
+    "esp8266": (None, 0x0),
+    "esp32": (0, 0x1000),
+    "esp32s2": (2, 0x1000),
+    "esp32s3": (9, 0x0),
+    "esp32c2": (12, 0x0),
+    "esp32c3": (5, 0x0),
+    "esp32c5": (23, 0x2000),
+    "esp32c6": (13, 0x0),
+    "esp32c61": (20, 0x0),
+    "esp32h2": (16, 0x0),
+    "esp32p4": (18, 0x2000),
+}
+ESP_BEFORE = ("default_reset", "usb_reset", "no_reset")
+AVR_PART_RE = re.compile(r"^[a-z0-9]{2,20}$")
+AVR_PROGRAMMERS = ("arduino", "wiring", "avr109", "urclock", "stk500v1", "stk500v2", "usbasp", "usbtiny")
+# Programadores ISP: no usan bootloader ni puerto serie, y sí permiten borrado total.
+AVR_ISP_PROGRAMMERS = ("usbasp", "usbtiny")
+
+# Grupo de cada método para agrupar placas en la interfaz.
+GROUP_BY_METHOD = {"swd": "STM32", "dfu": "STM32", "esptool": "Espressif (ESP)", "avrdude": "Arduino / AVR"}
+
+
+@dataclass(frozen=True)
+class IdCode:
+    """Registro de identificación del chip (DBGMCU_IDCODE en STM32)."""
+    address: int
+    mask: int
+    value: int
 
 
 @dataclass(frozen=True)
@@ -31,6 +71,7 @@ class SwdParams:
     flash_banks: Tuple[int, ...] = (0,)
     tcl_vars: Tuple[Tuple[str, str], ...] = ()
     erase_cmds: Tuple[str, ...] = ()
+    idcode: Optional[IdCode] = None
 
 
 @dataclass(frozen=True)
@@ -41,16 +82,54 @@ class DfuParams:
 
 
 @dataclass(frozen=True)
+class EsptoolParams:
+    chip: str                 # nombre de chip para "esptool --chip"
+    baud: int
+    app_address: int          # dirección de una aplicación suelta (.bin sin bootloader)
+    before: str = "default_reset"
+
+    @property
+    def image_chip_id(self) -> Optional[int]:
+        return ESP_CHIPS[self.chip][0]
+
+    @property
+    def bootloader_offset(self) -> int:
+        return ESP_CHIPS[self.chip][1]
+
+
+@dataclass(frozen=True)
+class AvrdudeParams:
+    part: str                 # -p (atmega328p, atmega2560, atmega32u4...)
+    programmer: str           # -c (arduino, wiring, avr109, usbasp...)
+    baud: Optional[int]       # -b (None para programadores ISP)
+    flash_kb: int
+    bootloader_kb: float      # espacio que ocupa el bootloader al final de la flash
+    touch_1200: bool = False  # Leonardo/Micro: abrir el puerto a 1200 baud para entrar al bootloader
+    no_auto_erase: bool = False   # -D (Mega 2560 con bootloader stk500v2)
+
+    @property
+    def is_isp(self) -> bool:
+        return self.programmer in AVR_ISP_PROGRAMMERS
+
+    @property
+    def max_program_bytes(self) -> int:
+        return int(self.flash_kb * 1024 - self.bootloader_kb * 1024)
+
+
+@dataclass(frozen=True)
 class Chip:
     id: str
     name: str
     family: str
-    flash_base: int
-    flash_size: int          # en bytes
-    sector_kb: Optional[int]
     default_method: str
+    flash_base: Optional[int] = None
+    flash_size: Optional[int] = None      # en bytes
+    sector_kb: Optional[int] = None
+    group: str = ""
     swd: Optional[SwdParams] = None
     dfu: Optional[DfuParams] = None
+    esptool: Optional[EsptoolParams] = None
+    avrdude: Optional[AvrdudeParams] = None
 
     @property
     def methods(self) -> List[str]:
@@ -58,8 +137,21 @@ class Chip:
 
     @property
     def flash_end(self) -> int:
-        """Primera dirección fuera de la flash."""
+        """Primera dirección fuera de la flash (sólo chips con flash declarada)."""
+        if self.flash_base is None or self.flash_size is None:
+            raise ValueError(f"{self.id} no declara 'flash'")
         return self.flash_base + self.flash_size
+
+    def extensions(self) -> List[str]:
+        """Tipos de archivo que acepta la placa (según sus métodos)."""
+        ext = set()
+        if self.swd or self.dfu:
+            ext |= {".elf", ".hex", ".bin"}
+        if self.esptool:
+            ext |= {".bin"}
+        if self.avrdude:
+            ext |= {".hex"}
+        return sorted(ext)
 
     def to_public(self) -> Dict[str, Any]:
         """Representación para la API/interfaz."""
@@ -67,27 +159,59 @@ class Chip:
             "id": self.id,
             "name": self.name,
             "family": self.family,
-            "flash_base": f"0x{self.flash_base:08X}",
-            "flash_size_kb": self.flash_size // 1024,
+            "group": self.group,
+            "flash_base": None if self.flash_base is None else f"0x{self.flash_base:08X}",
+            "flash_size_kb": None if self.flash_size is None else self.flash_size // 1024,
             "sector_kb": self.sector_kb,
             "default_method": self.default_method,
             "methods": self.methods,
+            "extensions": self.extensions(),
             "swd": None if self.swd is None else {
                 "target_cfg": self.swd.target_cfg,
                 "interface": self.swd.interface,
                 "adapter_speed_khz": self.swd.adapter_speed_khz,
+                "idcode": None if self.swd.idcode is None else f"0x{self.swd.idcode.value:03X}",
             },
             "dfu": None if self.dfu is None else {
                 "vid_pid": self.dfu.vid_pid,
                 "alt": self.dfu.alt,
                 "address": f"0x{self.dfu.address:08X}",
             },
+            "esptool": None if self.esptool is None else {
+                "chip": self.esptool.chip,
+                "baud": self.esptool.baud,
+                "app_address": f"0x{self.esptool.app_address:X}",
+            },
+            "avrdude": None if self.avrdude is None else {
+                "part": self.avrdude.part,
+                "programmer": self.avrdude.programmer,
+                "baud": self.avrdude.baud,
+                "isp": self.avrdude.is_isp,
+                "touch_1200": self.avrdude.touch_1200,
+                "max_program_bytes": self.avrdude.max_program_bytes,
+            },
         }
 
 
-def _parse_swd(raw: Any, where: str, interfaces: Optional[Mapping[str, Any]]) -> SwdParams:
+def _obj(raw: Any, where: str) -> Dict[str, Any]:
     if not isinstance(raw, dict):
         raise ConfigError(f"{where}: se esperaba un objeto")
+    return raw
+
+
+def _parse_idcode(raw: Any, where: str) -> Optional[IdCode]:
+    if raw is None:
+        return None
+    raw = _obj(raw, where)
+    return IdCode(
+        address=_as_int(_get(raw, "address"), f"{where}.address", 0, 0xFFFFFFFF),
+        mask=_as_int(_get(raw, "mask", 0xFFF), f"{where}.mask", 1, 0xFFFFFFFF),
+        value=_as_int(_get(raw, "value"), f"{where}.value", 0, 0xFFFFFFFF),
+    )
+
+
+def _parse_swd(raw: Any, where: str, interfaces: Optional[Mapping[str, Any]]) -> SwdParams:
+    raw = _obj(raw, where)
     target_cfg = str(_get(raw, "target_cfg", ""))
     if not CFG_PATH_RE.fullmatch(target_cfg) or ".." in target_cfg:
         raise ConfigError(f"{where}.target_cfg: ruta inválida '{target_cfg}'")
@@ -116,12 +240,12 @@ def _parse_swd(raw: Any, where: str, interfaces: Optional[Mapping[str, Any]]) ->
         flash_banks=tuple(_as_int(b, f"{where}.flash_banks", 0, 15) for b in banks),
         tcl_vars=tuple(tcl_vars),
         erase_cmds=tuple(erase_cmds),
+        idcode=_parse_idcode(_get(raw, "idcode"), f"{where}.idcode"),
     )
 
 
 def _parse_dfu(raw: Any, where: str, flash_base: int) -> DfuParams:
-    if not isinstance(raw, dict):
-        raise ConfigError(f"{where}: se esperaba un objeto")
+    raw = _obj(raw, where)
     vid_pid = str(_get(raw, "vid_pid", "0483:df11")).lower()
     if not VID_PID_RE.fullmatch(vid_pid):
         raise ConfigError(f"{where}.vid_pid: '{vid_pid}' no tiene formato VVVV:PPPP")
@@ -129,6 +253,53 @@ def _parse_dfu(raw: Any, where: str, flash_base: int) -> DfuParams:
         vid_pid=vid_pid,
         alt=_as_int(_get(raw, "alt", 0), f"{where}.alt", 0, 255),
         address=_as_int(_get(raw, "address", flash_base), f"{where}.address", 0, 0xFFFFFFFF),
+    )
+
+
+def _parse_esptool(raw: Any, where: str) -> EsptoolParams:
+    raw = _obj(raw, where)
+    chip = str(_get(raw, "chip", ""))
+    if chip not in ESP_CHIPS:
+        raise ConfigError(f"{where}.chip: '{chip}' no es un chip de esptool conocido "
+                          f"({', '.join(ESP_CHIPS)})")
+    before = str(_get(raw, "before", "default_reset"))
+    if before not in ESP_BEFORE:
+        raise ConfigError(f"{where}.before: '{before}' no válido ({', '.join(ESP_BEFORE)})")
+    default_app = 0x0 if chip == "esp8266" else 0x10000
+    return EsptoolParams(
+        chip=chip,
+        baud=_as_int(_get(raw, "baud", 460800), f"{where}.baud", 9600, 5_000_000),
+        app_address=_as_int(_get(raw, "app_address", default_app), f"{where}.app_address", 0, 0x1000000),
+        before=before,
+    )
+
+
+def _parse_avrdude(raw: Any, where: str) -> AvrdudeParams:
+    raw = _obj(raw, where)
+    part = str(_get(raw, "part", ""))
+    if not AVR_PART_RE.fullmatch(part):
+        raise ConfigError(f"{where}.part: '{part}' no es un nombre de parte válido")
+    programmer = str(_get(raw, "programmer", "arduino"))
+    if programmer not in AVR_PROGRAMMERS:
+        raise ConfigError(f"{where}.programmer: '{programmer}' no permitido ({', '.join(AVR_PROGRAMMERS)})")
+    baud = _get(raw, "baud")
+    if programmer not in AVR_ISP_PROGRAMMERS:
+        baud = _as_int(baud if baud is not None else 115200, f"{where}.baud", 300, 2_000_000)
+    elif baud is not None:
+        baud = _as_int(baud, f"{where}.baud", 300, 2_000_000)
+    bootloader_kb = float(_get(raw, "bootloader_kb", 0.5 if programmer == "arduino" else 0))
+    if programmer in AVR_ISP_PROGRAMMERS:
+        bootloader_kb = float(_get(raw, "bootloader_kb", 0))
+    if not 0 <= bootloader_kb <= 16:
+        raise ConfigError(f"{where}.bootloader_kb: fuera de rango")
+    return AvrdudeParams(
+        part=part,
+        programmer=programmer,
+        baud=baud,
+        flash_kb=_as_int(_get(raw, "flash_kb"), f"{where}.flash_kb", 1, 1024),
+        bootloader_kb=bootloader_kb,
+        touch_1200=bool(_get(raw, "touch_1200", False)),
+        no_auto_erase=bool(_get(raw, "no_auto_erase", False)),
     )
 
 
@@ -154,26 +325,33 @@ def parse_chips(data: Any, interfaces: Optional[Mapping[str, Any]] = None) -> Li
             raise ConfigError(f"{where}: id duplicado")
         seen.add(cid)
 
-        flash = _get(raw, "flash", {})
-        if not isinstance(flash, dict):
-            raise ConfigError(f"{where}.flash: se esperaba un objeto {{base, size_kb}}")
-        flash_base = _as_int(_get(flash, "base"), f"{where}.flash.base", 0, 0xFFFFFFFF)
-        size_kb = _as_int(_get(flash, "size_kb"), f"{where}.flash.size_kb", 1, 1024 * 1024)
-        sector_kb = _get(flash, "sector_kb")
-        if sector_kb is not None:
-            sector_kb = _as_int(sector_kb, f"{where}.flash.sector_kb", 1, 1024)
-
         methods = _get(raw, "methods", {})
         if not isinstance(methods, dict) or not methods:
-            raise ConfigError(f"{where}: 'methods' debe declarar al menos swd o dfu")
+            raise ConfigError(f"{where}: 'methods' debe declarar al menos un método "
+                              f"({', '.join(METHODS)})")
         unknown = set(methods) - set(METHODS)
         if unknown:
-            raise ConfigError(f"{where}: métodos desconocidos {sorted(unknown)} (válidos: swd, dfu)")
+            raise ConfigError(f"{where}: métodos desconocidos {sorted(unknown)} (válidos: {', '.join(METHODS)})")
+
+        # La flash (base y tamaño) es obligatoria para los métodos de STM32.
+        flash = _get(raw, "flash")
+        flash_base = size_kb = sector_kb = None
+        if flash is not None or "swd" in methods or "dfu" in methods:
+            if not isinstance(flash, dict):
+                raise ConfigError(f"{where}.flash: se esperaba un objeto {{base, size_kb}}")
+            flash_base = _as_int(_get(flash, "base"), f"{where}.flash.base", 0, 0xFFFFFFFF)
+            size_kb = _as_int(_get(flash, "size_kb"), f"{where}.flash.size_kb", 1, 1024 * 1024)
+            sector_kb = _get(flash, "sector_kb")
+            if sector_kb is not None:
+                sector_kb = _as_int(sector_kb, f"{where}.flash.sector_kb", 1, 1024)
 
         swd = _parse_swd(methods["swd"], f"{where}.methods.swd", interfaces) if "swd" in methods else None
         dfu = _parse_dfu(methods["dfu"], f"{where}.methods.dfu", flash_base) if "dfu" in methods else None
+        esp = _parse_esptool(methods["esptool"], f"{where}.methods.esptool") if "esptool" in methods else None
+        avr = _parse_avrdude(methods["avrdude"], f"{where}.methods.avrdude") if "avrdude" in methods else None
 
-        default_method = str(_get(raw, "default_method", "swd" if swd else "dfu"))
+        first = next(m for m in METHODS if m in methods)
+        default_method = str(_get(raw, "default_method", first))
         if default_method not in methods:
             raise ConfigError(f"{where}: default_method '{default_method}' no está en 'methods'")
 
@@ -181,12 +359,15 @@ def parse_chips(data: Any, interfaces: Optional[Mapping[str, Any]] = None) -> Li
             id=cid,
             name=str(_get(raw, "name", cid)),
             family=str(_get(raw, "family", "")),
-            flash_base=flash_base,
-            flash_size=size_kb * 1024,
-            sector_kb=sector_kb,
+            group=str(_get(raw, "group", GROUP_BY_METHOD[first])),
             default_method=default_method,
+            flash_base=flash_base,
+            flash_size=None if size_kb is None else size_kb * 1024,
+            sector_kb=sector_kb,
             swd=swd,
             dfu=dfu,
+            esptool=esp,
+            avrdude=avr,
         ))
     return chips
 

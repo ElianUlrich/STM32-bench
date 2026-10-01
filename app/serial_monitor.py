@@ -14,6 +14,13 @@ from typing import Any, Dict, List, Optional, Sequence
 from .events import EventBus
 
 MOCK_PORT = "MOCK-ACM0"
+# Puertos simulados: VCP de una Nucleo, un ESP32 (CP2102) y dos Arduino.
+MOCK_PORTS = [
+    {"device": "MOCK-ACM0", "description": "Puerto simulado: VCP de Nucleo (0483:374B)"},
+    {"device": "MOCK-USB0", "description": "Puerto simulado: ESP32 DevKit, CP2102 (10C4:EA60)"},
+    {"device": "MOCK-ACM1", "description": "Puerto simulado: Arduino Uno (2341:0043)"},
+    {"device": "MOCK-ACM2", "description": "Puerto simulado: Arduino Leonardo (2341:8036)"},
+]
 
 
 class SerialError(RuntimeError):
@@ -69,7 +76,7 @@ class SerialManager:
     # --- listado ---------------------------------------------------------------
     def list_ports(self) -> List[Dict[str, str]]:
         if self.mock:
-            return [{"device": MOCK_PORT, "description": "Puerto simulado (VCP de Nucleo)"}]
+            return [dict(p) for p in MOCK_PORTS]
         try:
             from serial.tools import list_ports
         except ImportError:
@@ -80,6 +87,7 @@ class SerialManager:
             if info.vid is None:
                 continue
             desc = info.description or ""
+            desc += f" ({info.vid:04X}:{info.pid:04X})"
             if info.serial_number:
                 desc += f" (S/N {info.serial_number})"
             ports.append({"device": info.device, "description": desc})
@@ -167,6 +175,34 @@ class SerialManager:
                 self._port.write(data)
             except Exception as exc:
                 raise SerialError(f"No se pudo escribir: {exc}")
+
+    def touch_1200(self, port: str) -> None:
+        """Abre y cierra el puerto a 1200 baud: los Arduino con USB nativo (Leonardo,
+        Micro) lo interpretan como pedido de entrar al bootloader."""
+        if self.mock:
+            return
+        import serial
+        try:
+            handle = serial.Serial(port, baudrate=1200)
+            handle.dtr = False
+            handle.close()
+        except serial.SerialException as exc:
+            raise SerialError(f"No se pudo hacer el reset a 1200 baud en {port}: {exc}")
+
+    def pulse_reset(self, port: str) -> None:
+        """Pulso en DTR: en los Arduino con USB-serie reinicia el micro (capacitor al RESET)."""
+        if self.mock:
+            return
+        import serial
+        try:
+            handle = serial.Serial(port, baudrate=115200)
+            handle.dtr = False
+            time.sleep(0.1)
+            handle.dtr = True
+            time.sleep(0.1)
+            handle.close()
+        except serial.SerialException as exc:
+            raise SerialError(f"No se pudo reiniciar por DTR en {port}: {exc}")
 
     def send_to_port(self, port: str, baud: int, data: bytes) -> None:
         """Envía datos a un puerto concreto (lo usa BootControl serial_command).

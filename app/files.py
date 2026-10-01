@@ -16,7 +16,7 @@ import re
 import secrets
 from dataclasses import dataclass
 from pathlib import Path
-from typing import BinaryIO, Dict, List, Optional
+from typing import BinaryIO, Callable, Dict, List, Optional
 
 from .settings import UPLOADS_DIRNAME
 
@@ -132,10 +132,10 @@ def check_content(kind: str, head: bytes, size: int) -> None:
         if len(head) < 20 or head[:4] != b"\x7fELF":
             raise FileValidationError("No es un ELF válido (falta la firma \\x7fELF)")
         if head[4] != 1:
-            raise FileValidationError("El ELF no es de 32 bits (los STM32 son ARM de 32 bits)")
+            raise FileValidationError("El ELF no es de 32 bits (los microcontroladores soportados son de 32 bits)")
         machine = int.from_bytes(head[18:20], "little" if head[5] == 1 else "big")
-        if machine != 40:  # EM_ARM
-            raise FileValidationError(f"El ELF no es para ARM (e_machine={machine})")
+        if machine not in (40, 83, 94, 243):  # ARM, AVR, Xtensa, RISC-V
+            raise FileValidationError(f"El ELF no es para un microcontrolador soportado (e_machine={machine})")
     elif kind == "hex":
         stripped = head.lstrip(b"\xef\xbb\xbf \r\n\t")
         if not stripped.startswith(b":"):
@@ -153,11 +153,13 @@ class SavedFile:
 
 
 def save_upload(projects_dir: Path, project: str, filename: str, stream: BinaryIO,
-                max_bytes: int, chunk_size: int = 64 * 1024) -> SavedFile:
+                max_bytes: int, chunk_size: int = 64 * 1024,
+                validator: Optional[Callable[[Path], None]] = None) -> SavedFile:
     """Guarda un archivo subido en _subidos/<proyecto>/<nombre>.
 
     Se escribe en un temporal y se renombra al final (atómico), así Syncthing
-    ni el escaneo ven nunca un archivo a medio escribir.
+    ni el escaneo ven nunca un archivo a medio escribir. `validator` recibe el
+    temporal y puede rechazarlo (p. ej. si el binario no es para la placa elegida).
     """
     validate_filename(filename)
     project = validate_project_name(project)
@@ -186,6 +188,8 @@ def save_upload(projects_dir: Path, project: str, filename: str, stream: BinaryI
                     head += chunk[:64 - len(head)]
                 out.write(chunk)
         check_content(kind, head, size)
+        if validator is not None:
+            validator(tmp)
         final = target_dir / filename
         os.replace(tmp, final)
     except BaseException:
@@ -224,7 +228,8 @@ def _ignored_file(name: str) -> bool:
     return name.startswith(IGNORED_FILE_PREFIXES) or name.endswith(IGNORED_FILE_SUFFIXES)
 
 
-def scan_projects(projects_dir: Path, max_depth: int = 5) -> List[Dict]:
+def scan_projects(projects_dir: Path, max_depth: int = 5,
+                  targets: Optional[Dict[str, str]] = None) -> List[Dict]:
     """Recorre el directorio de proyectos y agrupa el firmware por proyecto.
 
     El "proyecto" es la carpeta de primer nivel (o _subidos/<proyecto>). Los
@@ -288,6 +293,8 @@ def scan_projects(projects_dir: Path, max_depth: int = 5) -> List[Dict]:
                 "mtime": st.st_mtime,
                 "deletable": uploaded,
                 "usable": usable,
+                # Placa a la que está asignado el archivo (None = sin asignar).
+                "target": (targets or {}).get(rel.as_posix()),
             })
 
     result = list(projects.values())
