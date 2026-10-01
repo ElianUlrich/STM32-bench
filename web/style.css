@@ -347,6 +347,15 @@ label.inline input { width: 160px; }
 .stat .v code { font-size: 12.5px; }
 .bar { height: 5px; border-radius: 3px; background: var(--border); margin-top: 6px; overflow: hidden; }
 .bar > i { display: block; height: 100%; background: var(--accent); }
+.usb-box { margin-top: 12px; border-top: 1px solid var(--border); padding-top: 12px; }
+.usb-box h3 { display: flex; gap: 10px; align-items: baseline; }
+.usb-table td { font-size: 12.5px; }
+.usb-table td code { font-size: 12px; }
+.usb-table tr.dfu td { background: var(--accent-soft); }
+.usb-table tr.off td { color: var(--muted); }
+.usb-hub { margin: 10px 0 4px; font-size: 13px; font-weight: 600; }
+.usb-hub small { font-weight: 400; color: var(--muted); }
+.usb-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 .power { margin-top: 12px; border-top: 1px solid var(--border); padding-top: 12px; }
 
 /* ---------- diálogos y overlays ---------- */

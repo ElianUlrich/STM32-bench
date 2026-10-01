@@ -1,6 +1,6 @@
 # Firmware de prueba para STM32H503CBT6 con LEDs en PA0..PA7.
 #
-#   make                          compila los 4 programas en build/ (.elf .hex .bin .map)
+#   make                          compila los 5 programas en build/ (.elf .hex .bin .map)
 #   make DEFS=-DLED_ACTIVO_ALTO=0 si los LEDs encienden con el pin en bajo
 #   make clean
 #
@@ -13,10 +13,11 @@ OBJCOPY := $(PREFIX)objcopy
 SIZE    := $(PREFIX)size
 
 BUILD     := build
-PROGRAMAS := 01_blink_todos 02_auto_fantastico 03_contador_binario 04_contador_serie
+PROGRAMAS := 01_blink_todos 02_auto_fantastico 03_contador_binario 04_contador_serie 05_contador_rtt
 COMUNES   := src/startup_stm32h503.c src/placa.c
 # Fuentes que usa sólo un programa.
 EXTRA_04_contador_serie := src/serie.c
+EXTRA_05_contador_rtt   := src/rtt.c
 
 CPU     := -mcpu=cortex-m33 -mthumb -mfloat-abi=soft
 CFLAGS  := $(CPU) -std=gnu11 -Og -g3 -Wall -Wextra -ffreestanding \
@@ -28,7 +29,9 @@ SALIDAS := $(foreach p,$(PROGRAMAS),$(BUILD)/$(p).elf $(BUILD)/$(p).hex $(BUILD)
 
 all: $(SALIDAS)
 
-$(BUILD)/%.elf: src/%.c $(COMUNES) src/placa.h src/serie.h src/serie.c stm32h503cb.ld | $(BUILD)
+# SECONDEXPANSION: para usar $* (el nombre del programa) en los prerrequisitos.
+.SECONDEXPANSION:
+$(BUILD)/%.elf: src/%.c $(COMUNES) $(wildcard src/*.h) $$(EXTRA_$$*) stm32h503cb.ld | $(BUILD)
 	$(CC) $(CFLAGS) $(LDFLAGS) -Wl,-Map=$(BUILD)/$*.map $< $(COMUNES) $(EXTRA_$*) -lgcc -o $@
 	$(SIZE) $@
 

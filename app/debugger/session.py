@@ -187,6 +187,8 @@ class DebugSession:
         self._stopping = False
         self._reset_state()
         self.watches: List[str] = []
+        # Lo asigna Bench: True si OpenOCD tiene RTT configurado pero todavía no encontró el bloque.
+        self.rtt_retry: Callable[[], bool] = lambda: False
 
     def _reset_state(self) -> None:
         self.state = "off"                    # off | starting | stopped | running | error
@@ -454,8 +456,18 @@ class DebugSession:
         except DebugError as exc:
             return {"error": str(exc)}
 
+    async def _rtt_retry(self) -> None:
+        """Con el micro detenido, pide a OpenOCD que vuelva a buscar el bloque RTT
+        (al grabar y parar en main, el programa todavía no lo había creado)."""
+        try:
+            if self.rtt_retry():
+                await self._monitor("rtt start", timeout=5)
+        except DebugError:
+            pass
+
     async def _refresh(self) -> None:
         """Lee pila, variables, expresiones y registros (con el programa detenido)."""
+        await self._rtt_retry()
         try:
             frames = (await self._send("-stack-list-frames 0 19")).results.get("stack", [])
         except DebugError:

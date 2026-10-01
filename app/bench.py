@@ -22,13 +22,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from . import mock_state, probe, system
+from . import mock_state, probe, system, usb
 from .bootcontrol import create_boot_control, wait_for_dfu
 from .chips import CfgCheck, Chip, check_cfg_files, load_chips
 from .compat import Compat, check_file_for_chip
 from .convert import ConversionError, convert_to_bin
 from .debugger.session import DebugError, DebugSession
-from .elfinfo import DebugInfo, DebugInfoError, load_debug_info
+from .elfinfo import DebugInfo, DebugInfoError, find_symbol, load_debug_info
+from .rtt import RTT_PORT_NAME, RTT_SYMBOL, RttPort
 from .events import EventBus
 from .files import FileValidationError, resolve_firmware
 from .firmware_meta import FirmwareMeta
@@ -124,6 +125,10 @@ class Bench:
         self.runner = JobRunner(self.bus, self.history, self.env_extra)
         self.gdb = GdbServer(self.bus, self.env_extra)
         self.debug = DebugSession(self.bus, self.env_extra)
+        self.port_power = usb.PortPower(mock=settings.mock)
+        # Mientras se depura, si RTT todavía no encontró el bloque (el programa recién arranca), se reintenta.
+        self.debug.rtt_retry = lambda: bool(self.gdb.active and self.gdb.info.get("rtt")
+                                            and self.gdb.rtt_state != "encontrado")
         self.serial = SerialManager(self.bus, self.cfg.serial_bauds, self.cfg.serial_default_baud, settings.mock)
         self.boot = create_boot_control(self.cfg.boot_control, self.serial, settings.mock, settings.state_dir)
         self.serial_command = "adapter serial"
@@ -611,7 +616,23 @@ class Bench:
             return "127.0.0.1", "127.0.0.1"
         return bind, bind
 
-    async def start_gdb(self, chip_id: str, interface: Optional[str], probe_serial: Optional[str]) -> Dict[str, Any]:
+    def rtt_config(self, rel_path: Optional[str]) -> Optional[ocd_cmd.RttConfig]:
+        """RTT del .elf (si tiene el bloque _SEGGER_RTT); None si no es un .elf con RTT."""
+        if not rel_path:
+            return None
+        try:
+            elf = resolve_firmware(self.settings.projects_dir, rel_path)
+        except FileValidationError:
+            return None
+        if elf.suffix.lower() != ".elf":
+            return None
+        sym = find_symbol(elf, RTT_SYMBOL)
+        if sym is None:
+            return None
+        return ocd_cmd.RttConfig(address=sym[0], size=max(sym[1], 24), port=self.cfg.rtt_port)
+
+    async def start_gdb(self, chip_id: str, interface: Optional[str], probe_serial: Optional[str],
+                        rtt: Optional[ocd_cmd.RttConfig] = None) -> Dict[str, Any]:
         chip = self.chip(chip_id)
         if chip.swd is None:
             raise RequestError(base.DFU_UNSUPPORTED_REASON)
@@ -622,12 +643,15 @@ class Bench:
         bind_ip, show_ip = self.gdb_bind_ip()
         port = self.cfg.gdb_port
         try:
-            argv = ocd_cmd.gdb_server_args(self.openocd_setup(iface, serial), chip.swd, port, bind_ip)
+            argv = ocd_cmd.gdb_server_args(self.openocd_setup(iface, serial), chip.swd, port, bind_ip, rtt=rtt)
         except (ocd_cmd.CommandError, ValueError) as exc:
             raise RequestError(str(exc))
         info = {"chip": chip.id, "chip_name": chip.name, "interface": iface.id, "probe_serial": serial,
                 "port": port, "bind_ip": bind_ip,
                 "connect": f"{show_ip}:{port}" if show_ip else f"<IP de la placa>:{port}"}
+        if rtt is not None:
+            info["rtt"] = {"address": f"0x{rtt.address:08X}", "port": rtt.port,
+                           "connect": f"{show_ip}:{rtt.port}" if show_ip else None}
         try:
             return await self.gdb.start(argv, info)
         except GdbServerError as exc:
@@ -672,7 +696,8 @@ class Bench:
                 raise RequestError("Hay un GDB externo conectado al servidor (OpenOCD acepta uno solo): "
                                    "desconectalo (quit) y probá de nuevo")
         else:
-            await self.start_gdb(chip_id, interface, probe_serial)
+            rtt = await asyncio.get_running_loop().run_in_executor(None, self.rtt_config, rel_path)
+            await self.start_gdb(chip_id, interface, probe_serial, rtt=rtt)
         for _ in range(100):                     # hasta 10 s más si OpenOCD sigue arrancando
             if self.gdb.state == "listening" or not self.gdb.active:
                 break
@@ -689,6 +714,77 @@ class Bench:
                                           chip_name=chip.name, idcode=chip.swd.idcode, mode=mode)
         except DebugError as exc:
             raise RequestError(str(exc))
+
+    # ---------------------------------------------------------------------- RTT
+    async def open_rtt(self, chip_id: str, interface: Optional[str], probe_serial: Optional[str],
+                       rel_path: str) -> Dict[str, Any]:
+        """Abre el canal RTT del programa en el monitor serie (inicia OpenOCD con RTT si hace falta)."""
+        chip = self.chip(chip_id)
+        if chip.swd is None:
+            raise RequestError("RTT es para STM32 por SWD (ST-Link)")
+        if self.runner.busy:
+            raise BusyError("Hay una operación en curso; esperá a que termine")
+        loop = asyncio.get_running_loop()
+        rtt = await loop.run_in_executor(None, self.rtt_config, rel_path)
+        if rtt is None:
+            raise RequestError("Este archivo no usa RTT: hace falta el .elf de un programa con RTT (el símbolo "
+                               "_SEGGER_RTT, de SEGGER RTT o de firmware/h503_leds/src/rtt.c).")
+        current = self.gdb.info.get("rtt") if self.gdb.active else None
+        same = bool(current and current.get("address") == f"0x{rtt.address:08X}"
+                    and current.get("port") == rtt.port and self.gdb.info.get("chip") == chip.id)
+        if self.gdb.active and not (same and self.gdb.rtt_state == "encontrado"):
+            if self.debug.active:
+                if not same:
+                    raise RequestError("El servidor GDB de la depuración no tiene RTT para este programa: "
+                                       "detené la depuración y abrí RTT de nuevo")
+            else:
+                await self.gdb.stop()            # se reinicia con RTT (no resetea el micro)
+        if not self.gdb.active:
+            await self.start_gdb(chip_id, interface, probe_serial, rtt=rtt)
+        for _ in range(100):
+            if self.gdb.state == "listening" or not self.gdb.active:
+                break
+            await asyncio.sleep(0.1)
+        if self.gdb.state != "listening":
+            raise RequestError(self.gdb.last_error or "OpenOCD no arrancó")
+        host = self.gdb.info.get("bind_ip") or "127.0.0.1"
+        if host == "0.0.0.0":
+            host = "127.0.0.1"
+        try:
+            await loop.run_in_executor(None, self.serial.open_custom, RTT_PORT_NAME,
+                                       lambda: RttPort(host, rtt.port), "RTT por el ST-Link")
+        except SerialError as exc:
+            raise RequestError(str(exc))
+        if self.gdb.rtt_state == "no_encontrado":
+            self.bus.publish({"type": "serial", "meta": True,
+                              "data": "\n--- RTT: no se encontró el bloque de control. ¿Está corriendo este "
+                                      "programa en el micro? Grabalo y volvé a abrir RTT. ---\n"})
+        return {"serial": self.serial.status(), "gdb": self.gdb.status()}
+
+    # ---------------------------------------------------------------------- USB
+    def usb_devices(self) -> List[usb.UsbDevice]:
+        return usb.mock_devices() if self.settings.mock else usb.list_devices()
+
+    def usb_status(self) -> Dict[str, Any]:
+        devices = self.usb_devices()
+        return {"devices": [d.to_public() for d in devices], "power": self.port_power.status(devices)}
+
+    async def usb_power_action(self, location: str, port: int, action: str) -> Dict[str, Any]:
+        """Apaga, prende o reinicia un puerto USB (nunca uno que lleve a la red)."""
+        if self.runner.busy:
+            raise BusyError("Hay una operación en curso: esperá a que termine antes de cortar un USB")
+        loop = asyncio.get_running_loop()
+        devices = await loop.run_in_executor(None, self.usb_devices)
+        names = {"on": "Prender", "off": "Apagar", "cycle": "Reiniciar"}
+        try:
+            cmd = await loop.run_in_executor(None, self.port_power.act, location, port, action, devices)
+        except usb.PowerError as exc:
+            raise RequestError(str(exc))
+        self.bus.publish({"type": "log", "source": "usb", "level": "cmd",
+                          "line": f"{names.get(action, action)} USB {location} puerto {port}: {cmd}"})
+        if action != "off" and not self.settings.mock:
+            await asyncio.sleep(1.5)            # que el dispositivo vuelva a aparecer
+        return await loop.run_in_executor(None, self.usb_status)
 
     # ------------------------------------------------------------------ estado
     def public_config(self) -> Dict[str, Any]:

@@ -239,6 +239,7 @@ class GdbStartBody(BaseModel):
     chip: str
     interface: Optional[str] = None
     probe_serial: Optional[str] = None
+    file: Optional[str] = None       # .elf elegido: si usa RTT, OpenOCD publica también el canal RTT
 
 
 @router.get("/gdb")
@@ -248,7 +249,22 @@ async def gdb_status(request: Request, _: str = Depends(require_user)) -> Dict[s
 
 @router.post("/gdb/start")
 async def gdb_start(body: GdbStartBody, request: Request, _: str = Depends(require_user)) -> Dict[str, Any]:
-    return await get_bench(request).start_gdb(body.chip, body.interface, body.probe_serial)
+    bench = get_bench(request)
+    rtt = await asyncio.get_running_loop().run_in_executor(None, bench.rtt_config, body.file)
+    return await bench.start_gdb(body.chip, body.interface, body.probe_serial, rtt=rtt)
+
+
+class RttOpenBody(BaseModel):
+    chip: str
+    file: str
+    interface: Optional[str] = None
+    probe_serial: Optional[str] = None
+
+
+@router.post("/rtt/open")
+async def rtt_open(body: RttOpenBody, request: Request, _: str = Depends(require_user)) -> Dict[str, Any]:
+    """Abre el canal RTT del programa en el monitor serie (por el ST-Link, sin adaptador)."""
+    return await get_bench(request).open_rtt(body.chip, body.interface, body.probe_serial, body.file)
 
 
 @router.post("/gdb/stop")
@@ -400,6 +416,27 @@ async def serial_send(body: SerialSendBody, request: Request, _: str = Depends(r
     bench = get_bench(request)
     bench.serial.write((body.text + EOLS[body.eol]).encode("utf-8"))
     return {"ok": True}
+
+
+# ------------------------------------------------------------------------ USB
+
+class UsbPowerBody(BaseModel):
+    location: str
+    port: int
+    action: str            # on | off | cycle
+
+
+@router.get("/usb")
+async def usb_status(request: Request, _: str = Depends(require_user)) -> Dict[str, Any]:
+    """Lo que hay enchufado por USB y el control de alimentación por puerto (uhubctl)."""
+    bench = get_bench(request)
+    return await asyncio.get_running_loop().run_in_executor(None, bench.usb_status)
+
+
+@router.post("/usb/power")
+async def usb_power(body: UsbPowerBody, request: Request, _: str = Depends(require_user)) -> Dict[str, Any]:
+    bench = get_bench(request)
+    return await bench.usb_power_action(body.location, body.port, body.action)
 
 
 # ------------------------------------------------------------------------ sistema

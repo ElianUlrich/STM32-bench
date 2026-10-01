@@ -301,6 +301,22 @@ def load_debug_info(projects_dir: Path, elf: Path) -> DebugInfo:
     return DebugInfo(elf=elf, sources=sources, has_main=has_main, missing=missing)
 
 
+def find_symbol(elf: Path, name: str) -> Optional[Tuple[int, int]]:
+    """(dirección, tamaño) de un símbolo del .elf, o None (p. ej. _SEGGER_RTT para RTT)."""
+    try:
+        from elftools.elf.elffile import ELFFile
+        with open(elf, "rb") as fh:
+            symtab = ELFFile(fh).get_section_by_name(".symtab")
+            if symtab is None:
+                return None
+            for sym in symtab.get_symbol_by_name(name) or []:
+                if sym["st_value"]:
+                    return int(sym["st_value"]), int(sym["st_size"])
+    except (OSError, ValueError, KeyError):
+        return None
+    return None
+
+
 def read_source(src: SourceFile) -> str:
     if src.path is None:
         raise DebugInfoError(f"No se encontró '{src.name}' en la carpeta del proyecto")

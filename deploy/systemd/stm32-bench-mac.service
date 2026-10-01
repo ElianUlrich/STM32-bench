@@ -1,0 +1,21 @@
+# MAC fija para @IFACE@ (la BeagleBoard-xM no tiene EEPROM para el chip de red y
+# cada arranque inventa una MAC). La instala scripts/fijar_mac.sh; la MAC está en
+# /etc/stm32-bench/mac.conf.
+[Unit]
+Description=MAC fija para @IFACE@ (banco STM32)
+DefaultDependencies=no
+Wants=network-pre.target
+Before=network-pre.target
+BindsTo=sys-subsystem-net-devices-@IFACE@.device
+After=sys-subsystem-net-devices-@IFACE@.device
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+EnvironmentFile=/etc/stm32-bench/mac.conf
+# La MAC sólo se puede cambiar con la interfaz abajo; la red la levanta después.
+ExecStart=@IP@ link set dev ${IFACE} down
+ExecStart=@IP@ link set dev ${IFACE} address ${MAC}
+
+[Install]
+WantedBy=multi-user.target

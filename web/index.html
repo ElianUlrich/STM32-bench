@@ -233,6 +233,13 @@
 
         <div class="tab" id="tab-system" hidden>
           <div class="sys-grid" id="sys-grid"></div>
+          <div class="usb-box">
+            <h3>USB <button type="button" class="link small" id="btn-usb-refresh">actualizar</button></h3>
+            <p class="note">Lo que está enchufado en la placa. Si un STM32 en modo DFU no aparece como
+              <code>0483:df11</code>, el problema es el cable (algunos son sólo de carga) o el USB del STM32 no está conectado.</p>
+            <div id="usb-power"></div>
+            <table class="table usb-table" id="usb-table"></table>
+          </div>
           <div class="power">
             <h3>Energía</h3>
             <p class="note">Apagá la placa antes de cortar la alimentación. Después de apagarla no se puede volver a encender por software.</p>

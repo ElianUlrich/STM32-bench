@@ -118,6 +118,11 @@ if [ "$CONFIG" = "1" ]; then
     systemctl restart stm32-bench
 fi
 
+# --- MAC fija (BeagleBoard-xM: sin EEPROM, la MAC cambia en cada arranque) -----------
+if [ ! -f /etc/stm32-bench/mac.conf ] && [ -e /sys/class/net/eth0 ]; then
+    bash "$DIR/scripts/fijar_mac.sh" || warn "No se pudo fijar la MAC (ver scripts/fijar_mac.sh)."
+fi
+
 # --- GDB para la pestaña Depurar --------------------------------------------------
 if [ "$MODO" = "completo" ]; then
     paso "6/6 GDB 12 para la pestaña Depurar (3-6 h la primera vez)"

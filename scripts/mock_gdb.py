@@ -337,7 +337,7 @@ def handle(token, cmd):
             emit('@"[stm32h5x.cpu] halted due to debug-request, current mode: Thread \\n"')
             emit('@"xPSR: 0x01000000 pc: 0x08000254 msp: 0x20004000\\n"')
             return done()
-        if text in ("maintenance flush register-cache", "flushregs"):
+        if text in ("maintenance flush register-cache", "flushregs") or text.startswith("monitor rtt "):
             return done()
         return error(f'Undefined command: "{text}".  Try "help".')
     if name == "-target-download":

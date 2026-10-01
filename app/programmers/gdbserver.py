@@ -25,6 +25,8 @@ class GdbServer:
         self.info: Dict[str, Any] = {}
         self.client_connected = False
         self.last_error: Optional[str] = None
+        # RTT: None (sin RTT) | buscando | encontrado | no_encontrado
+        self.rtt_state: Optional[str] = None
 
     @property
     def active(self) -> bool:
@@ -32,7 +34,7 @@ class GdbServer:
 
     def status(self) -> Dict[str, Any]:
         return {"state": self.state, "active": self.active, "client_connected": self.client_connected,
-                "last_error": self.last_error, **self.info}
+                "last_error": self.last_error, "rtt_state": self.rtt_state, **self.info}
 
     def _publish(self) -> None:
         self.bus.publish({"type": "gdb", "status": self.status()})
@@ -56,6 +58,15 @@ class GdbServer:
         elif "dropped 'gdb' connection" in line:
             self.client_connected = False
             changed = True
+        elif "rtt: Searching for control block" in line and self.rtt_state != "encontrado":
+            self.rtt_state = "buscando"
+            changed = True
+        elif "rtt: Control block found" in line:
+            self.rtt_state = "encontrado"
+            changed = True
+        elif "rtt: No control block found" in line:
+            self.rtt_state = "no_encontrado"
+            changed = True
         if changed:
             self.bus.publish({"type": "gdb", "status": self.status()})
 
@@ -66,6 +77,7 @@ class GdbServer:
         self.state = "starting"
         self.client_connected = False
         self.last_error = None
+        self.rtt_state = "buscando" if info.get("rtt") else None
         self.info = dict(info, started=time.time())
         self.bus.publish({"type": "log", "source": "gdb", "level": "cmd", "line": "$ " + " ".join(argv)})
         proc = StreamingProcess(argv, on_line=self._on_line, env_extra=self.env_extra)

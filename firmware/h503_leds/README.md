@@ -1,6 +1,6 @@
 # Firmware de prueba — STM32H503CBT6 con LEDs en PA0..PA7
 
-Cuatro programas mínimos (C sin HAL, 1-2 KB cada uno) para probar el banco. Ya vienen compilados en
+Cinco programas mínimos (C sin HAL, 1-2 KB cada uno) para probar el banco. Ya vienen compilados en
 `build/` (`.elf`, `.hex`, `.bin`); sólo hay que subirlos desde la web.
 
 | Programa | Qué hace | Para probar |
@@ -9,6 +9,7 @@ Cuatro programas mínimos (C sin HAL, 1-2 KB cada uno) para probar el banco. Ya 
 | `02_auto_fantastico` | Una luz que va y viene de PA0 a PA7 | **Halt** congela la luz, **Run** la reanuda, **Reset** reinicia el recorrido. Tiene una variable en `.data` (prueba la conversión .elf → .bin de DFU) |
 | `03_contador_binario` | Cuenta 0..255 en binario (PA0 = bit 0) cada 250 ms | Servidor GDB: `print contador`, `set var contador = 0xAA`, breakpoints |
 | `04_contador_serie` | El mismo contador, pero manda cada valor por **USART1** (PA9/PA10, 115200 8N1) y acepta comandos | **Monitor serie** de la web (recibir y enviar) y la pestaña Depurar |
+| `05_contador_rtt` | El mismo contador, pero por **RTT**: el texto viaja por el ST-Link (SWD), sin adaptador ni cables extra | Monitor serie → puerto "RTT — por el ST-Link"; funciona también mientras se depura |
 
 ## Puerto serie (04_contador_serie)
 
@@ -85,6 +86,8 @@ make
 
 - `src/placa.h`, `src/placa.c`: registros (direcciones del encabezado oficial de ST `stm32h503xx.h`),
   inicialización de PA0..PA7, `leds_mostrar()`, `esperar_ms()` con SysTick.
+- `src/rtt.h`, `src/rtt.c` (sólo 05): RTT mínimo con el formato de SEGGER (bloque `_SEGGER_RTT`); el texto que
+  no entra en el buffer (1 KB) se descarta, así el programa nunca espera.
 - `src/serie.h`, `src/serie.c` (sólo 04): USART1 por encuesta, sin interrupciones; el divisor de
   baudios se calcula con el reloj real (HSI, HSIDIV, HPRE y PPRE2 leídos de los registros).
 - `src/startup_stm32h503.c`: tabla de vectores (16 del núcleo + 134 IRQ) y arranque en C.

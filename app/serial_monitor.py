@@ -132,6 +132,24 @@ class SerialManager:
         self.bus.publish({"type": "serial", "data": f"\n--- abierto {port} @ {baud} ---\n", "meta": True})
         self._publish_status()
 
+    def open_custom(self, name: str, factory, label: str) -> None:
+        """Abre un "puerto" que no es serie (p. ej. RTT por el ST-Link) con el mismo lector."""
+        self.close()
+        try:
+            port = factory()
+        except OSError as exc:
+            raise SerialError(f"No se pudo abrir {label}: {exc}")
+        with self._lock:
+            self._port = port
+            self._port_name = name
+            self._baud = None
+            self._error = None
+            self._stop.clear()
+            self._thread = threading.Thread(target=self._read_loop, name="serial-reader", daemon=True)
+            self._thread.start()
+        self.bus.publish({"type": "serial", "data": f"\n--- abierto {label} ---\n", "meta": True})
+        self._publish_status()
+
     def close(self) -> None:
         with self._lock:
             port = self._port

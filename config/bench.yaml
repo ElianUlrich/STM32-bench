@@ -50,6 +50,11 @@ gdb:
 debugger:
   gdb_binary: /usr/local/bin/arm-none-eabi-gdb
 
+# RTT ("printf" por el ST-Link): puerto TCP donde OpenOCD publica el canal 0 del
+# programa (escucha en la misma IP que el servidor GDB). Lo usa el monitor serie.
+rtt:
+  port: 9090
+
 uploads:
   max_size_mb: 16
 

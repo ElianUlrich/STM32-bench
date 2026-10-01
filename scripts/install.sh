@@ -53,6 +53,8 @@ apt-get install -y --no-install-recommends \
 # avrdude: Arduino / AVR (bootloader serie o programador ISP).
 apt-get install -y --no-install-recommends avrdude \
     || warn "No se pudo instalar avrdude (solo necesario para placas Arduino / AVR)."
+# uhubctl: corta y da energía a los puertos de un hub USB (Alimentación USB en la web).
+bash "$SRC_DIR/scripts/build_uhubctl.sh"     || warn "No se pudo instalar uhubctl (solo necesario para cortar la energía de los puertos USB)."
 # libgpiod solo hace falta para el backend "gpio" de BootControl.
 apt-get install -y --no-install-recommends python3-libgpiod gpiod \
     || warn "No se pudo instalar python3-libgpiod (solo necesario para boot_control: gpio)."

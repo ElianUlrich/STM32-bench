@@ -115,6 +115,8 @@ DEMO_TARGETS = {
     "arduino-blink/Blink.ino.hex": "arduino-uno",
     "arduino-leonardo/Teclado.ino.hex": "arduino-leonardo",
     "h503-contador/build/03_contador_binario.elf": "stm32h503cb",
+    "h503-contador/build/04_contador_serie.elf": "stm32h503cb",
+    "h503-contador/build/05_contador_rtt.elf": "stm32h503cb",
 }
 
 
@@ -128,7 +130,10 @@ def seed_debug_project(projects_dir: Path) -> None:
         return
     (dest / "build").mkdir(parents=True)
     (dest / "src").mkdir()
-    (dest / "build" / elf.name).write_bytes(elf.read_bytes())
+    for programa in ("03_contador_binario", "04_contador_serie", "05_contador_rtt"):
+        f = src / "build" / f"{programa}.elf"
+        if f.is_file():
+            (dest / "build" / f.name).write_bytes(f.read_bytes())
     for f in (src / "src").iterdir():
         if f.suffix in (".c", ".h"):
             (dest / "src" / f.name).write_bytes(f.read_bytes())

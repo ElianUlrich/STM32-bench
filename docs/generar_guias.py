@@ -277,6 +277,13 @@ def guia_1() -> list:
               "<b>Monitor serie</b>: lista los puertos USB-serie de la placa (/dev/ttyUSB*, /dev/ttyACM*), con "
               "velocidad configurable, y permite enviar texto con el fin de línea elegido. Si se graba una placa "
               "por el mismo puerto, el monitor se cierra mientras graba y se vuelve a abrir solo.",
+              "<b>RTT</b>: el “printf” del programa viaja por el mismo ST-Link (SWD), sin adaptador USB-serie ni "
+              "pines extra y sin frenar el micro. El programa escribe en un buffer en RAM (bloque "
+              + c("_SEGGER_RTT") + ") y OpenOCD lo lee mientras corre; en el monitor serie aparece como el puerto "
+              "“RTT — por el ST-Link”. Funciona también mientras se depura.",
+              "<b>USB</b>: en Sistema se ve todo lo que está enchufado (útil para diagnosticar, por ejemplo, si "
+              "un STM32 en modo DFU aparece como 0483:df11). Con un hub compatible con uhubctl se puede apagar, "
+              "prender o reiniciar la energía de cada puerto; el puerto que lleva a la red nunca se corta.",
               "<b>Historial</b>: cada operación con su resultado, duración y archivo.",
               "<b>Sistema</b>: IP, tiempo encendida, memoria, disco, versiones de las herramientas, y los "
               "botones Apagar y Reiniciar (con confirmación). Después de apagar hay que esperar unos 30 segundos "
@@ -419,6 +426,8 @@ def guia_2() -> list:
               "volver a mirarla: " + c(f"ssh ubuntu@{IP}") + " y " + c("tmux attach -t instalar") + ".",
               "Todo es idempotente: si algo falla, se corrige y se vuelve a correr el mismo comando; lo que ya "
               "estaba instalado no se recompila.",
+              "También deja fija la MAC de la red (la BeagleBoard-xM inventa una distinta en cada arranque y el "
+              "router le cambia la IP) e instala uhubctl para cortar la energía de los puertos USB.",
           ]),
           P("3b. Instalación en la BeagleBoard, paso a paso", "h1"),
           P("Lo mismo que hace " + c("desplegar.bat") + ", a mano, por si se quiere entender o hacer un paso solo."),
@@ -662,6 +671,12 @@ sudo systemctl restart stm32-bench
                   "necesita la interfaz stlink-dap."],
                  ["La pestaña Depurar no muestra el código", "Subiste sólo el .elf: subí el proyecto en .zip con "
                   "las fuentes."],
+                 ["USB DFU: no aparece el dispositivo", "Mirá Sistema → USB: tiene que figurar 0483:df11. Si no: "
+                  "cable sólo de carga (probalo en la PC con CubeProgrammer, modo USB), cable en el ST-Link en vez "
+                  "del USB del STM32, BOOT0 no quedó en alto al resetear, o un adaptador serie en PA9/PA10 (el "
+                  "bootloader puede elegir la USART)."],
+                 ["La IP local de la placa cambia en cada arranque", "Falta fijar la MAC: "
+                  + c("sudo bash ~/stm32-bench/scripts/fijar_mac.sh") + " y reservar la IP en el router."],
                  ["La placa no vuelve después de apagarla", "No se puede encender a distancia: hay que desenchufar "
                   "y volver a enchufar la alimentación."]],
                 [52, 118])]

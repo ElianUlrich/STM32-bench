@@ -160,11 +160,21 @@ def info_args(setup: OpenOcdSetup, swd: SwdParams) -> List[str]:
     return args + ["-c", "shutdown"]
 
 
-def gdb_server_args(setup: OpenOcdSetup, swd: SwdParams, port: int, bind_ip: str) -> List[str]:
-    """OpenOCD como servidor GDB persistente.
+@dataclass(frozen=True)
+class RttConfig:
+    """Bloque de control de RTT del programa (símbolo _SEGGER_RTT del .elf) y puerto TCP."""
+    address: int
+    size: int
+    port: int
+
+
+def gdb_server_args(setup: OpenOcdSetup, swd: SwdParams, port: int, bind_ip: str,
+                    rtt: Optional[RttConfig] = None) -> List[str]:
+    """OpenOCD como servidor GDB persistente (y, si el programa lo tiene, servidor RTT).
 
     telnet y tcl se deshabilitan: "bindto" aplica a todos los puertos y no
-    queremos exponer la consola de OpenOCD en la red. Solo queda el puerto GDB.
+    queremos exponer la consola de OpenOCD en la red. Quedan el puerto GDB y,
+    con RTT, el del canal 0 (sólo datos del programa, sin comandos de OpenOCD).
     """
     if not 1024 <= int(port) <= 65535:
         raise CommandError("Puerto GDB fuera de rango")
@@ -176,7 +186,18 @@ def gdb_server_args(setup: OpenOcdSetup, swd: SwdParams, port: int, bind_ip: str
         "telnet_port disabled",
         "tcl_port disabled",
     ]
-    return base_args(setup, swd, extra_config=config) + ["-c", "init"]
+    after_init: List[str] = []
+    if rtt is not None:
+        if not 1024 <= int(rtt.port) <= 65535 or int(rtt.port) == int(port):
+            raise CommandError("Puerto RTT inválido")
+        if not (0 <= rtt.address <= 0xFFFFFFFF and 16 <= rtt.size <= 0x10000):
+            raise CommandError("Bloque de control RTT inválido")
+        # Se busca justo en la dirección del símbolo: rápido y sin falsos positivos.
+        config += [f"rtt setup {_hex(rtt.address)} {int(rtt.size)} {{SEGGER RTT}}",
+                   "catch {rtt polling_interval 10}"]
+        # Con el target ya examinado: buscar el bloque y publicar el canal 0 por TCP.
+        after_init = ["-c", "rtt start", "-c", f"rtt server start {int(rtt.port)} 0"]
+    return base_args(setup, swd, extra_config=config) + ["-c", "init"] + after_init
 
 
 def version_args(command: Sequence[str]) -> List[str]:

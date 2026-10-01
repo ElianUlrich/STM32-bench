@@ -9,6 +9,8 @@ Fallas simuladas:
   * BENCH_MOCK_FAIL=connect               -> no se puede conectar al target
 """
 import os
+import socket
+import threading
 import re
 import sys
 import time
@@ -27,6 +29,54 @@ CORES = {
 def out(line, delay=0.05):
     print(line, flush=True)
     time.sleep(delay)
+
+
+def rtt_server(host, port):
+    """Canal RTT simulado: el programa 05_contador_rtt (cuenta cada 250 ms y acepta comandos)."""
+    srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    srv.bind((host, port))
+    srv.listen(1)
+    while True:
+        conn, _ = srv.accept()
+        threading.Thread(target=rtt_cliente, args=(conn,), daemon=True).start()
+
+
+def rtt_cliente(conn):
+    estado = {"contador": 0, "periodo": 0.25, "pausado": False}
+    try:
+        conn.sendall(b"\r\n=== 05_contador_rtt - STM32H503 (RTT) ===\r\n"
+                     b"Comandos: p = pausa/sigue, r = volver a 0, + = mas rapido, - = mas lento, "
+                     b"s = estado, ? = ayuda\r\n")
+        conn.settimeout(0.05)
+        proximo = time.monotonic()
+        while True:
+            try:
+                datos = conn.recv(64)
+                if not datos:
+                    return
+                for c in datos.decode(errors="ignore"):
+                    if c in "pP":
+                        estado["pausado"] = not estado["pausado"]
+                        conn.sendall(b"> Pausado\r\n" if estado["pausado"] else b"> Sigue\r\n")
+                    elif c in "rR":
+                        estado["contador"] = 0
+                        conn.sendall(b"> Vuelve a 0\r\n")
+                    elif c == "+":
+                        estado["periodo"] = max(0.05, estado["periodo"] / 2)
+                    elif c == "-":
+                        estado["periodo"] = min(4.0, estado["periodo"] * 2)
+            except socket.timeout:
+                pass
+            if not estado["pausado"] and time.monotonic() >= proximo:
+                proximo = time.monotonic() + estado["periodo"]
+                estado["contador"] += 1
+                leds = estado["contador"] & 0xFF
+                conn.sendall(f"contador = {estado['contador']}   LEDs = {leds:08b}   (0x{leds:02X})\r\n".encode())
+    except OSError:
+        return
+    finally:
+        conn.close()
 
 
 def main(argv):
@@ -65,6 +115,16 @@ def main(argv):
         port = next(c.split()[-1] for c in cmds if c.startswith("gdb_port"))
         out(f"Info : starting gdb server for {cpu} on {port}")
         out(f"Info : Listening on port {port} for gdb connections")
+        setup = next((c for c in cmds if c.startswith("rtt setup ")), None)
+        server = next((c for c in cmds if c.startswith("rtt server start ")), None)
+        if setup and "rtt start" in cmds:
+            out("Info : rtt: Searching for control block 'SEGGER RTT'")
+            out(f"Info : rtt: Control block found at {setup.split()[2].lower()}")
+        if server:
+            rtt_port = int(server.split()[3])
+            bind = next((c.split()[1] for c in cmds if c.startswith("bindto ")), "127.0.0.1")
+            threading.Thread(target=rtt_server, args=(bind, rtt_port), daemon=True).start()
+            out(f"Info : Listening on port {rtt_port} for rtt connections")
         try:
             while True:
                 time.sleep(1)

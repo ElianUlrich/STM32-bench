@@ -89,6 +89,8 @@ class BenchConfig:
     avrdude_timeout_s: float = 180.0
     # Depurador de la web: GDB para ARM compilado con scripts/build_gdb.sh.
     debugger_gdb_binary: str = "/usr/local/bin/arm-none-eabi-gdb"
+    # RTT ("printf" por el ST-Link): puerto TCP donde OpenOCD publica el canal 0.
+    rtt_port: int = 9090
     interfaces: Dict[str, InterfaceConfig] = field(default_factory=dict)
     gdb_port: int = 3333
     gdb_bind: str = "tailscale"
@@ -238,6 +240,7 @@ def parse_bench_config(data: Dict[str, Any]) -> BenchConfig:
         avrdude_binary=str(_get(avrdude, "binary", "avrdude")),
         avrdude_timeout_s=float(_get(avrdude, "timeout_s", 180)),
         debugger_gdb_binary=str(_get(debugger, "gdb_binary", "/usr/local/bin/arm-none-eabi-gdb")),
+        rtt_port=_as_int(_get(_get(data, "rtt", {}) or {}, "port", 9090), "rtt.port", 1024, 65535),
         interfaces=interfaces,
         gdb_port=_as_int(_get(gdb, "port", 3333), "gdb.port", 1024, 65535),
         gdb_bind=bind,

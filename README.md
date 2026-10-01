@@ -16,7 +16,10 @@ de programación y depuración remota de microcontroladores **STM32**, **ESP32/E
   continuar/pausar/paso a paso, variables locales y globales editables, expresiones, pila y registros
   (ver [Depurar en la web](#depurar-en-la-web-pestaña-depurar));
 - o levantar un **servidor GDB** para depurar desde `arm-none-eabi-gdb`, VS Code o STM32CubeIDE;
-- ver en vivo la salida de OpenOCD/dfu-util y un **monitor serie**;
+- ver en vivo la salida de OpenOCD/dfu-util y un **monitor serie**, que también muestra el
+  **RTT** del programa (el `printf` por el mismo ST-Link, sin adaptador USB-serie);
+- ver qué hay enchufado por USB y **cortar o reiniciar la energía de un puerto** (con un hub que lo
+  soporte, vía `uhubctl`) para reiniciar en frío una placa o un ST-Link colgado;
 - ver el estado de la placa y **apagarla o reiniciarla** con seguridad.
 
 ```
@@ -479,6 +482,58 @@ No los conectes directo a BOOT0 ni a NRST del STM32 (3,3 V): hace falta adaptaci
   es solo ilustrativo.
 - Probá sin el STM32 conectado: `gpioset gpiochip4 11=1` y medí con el tester.
 
+## RTT: `printf` por el ST-Link
+
+RTT (*Real-Time Transfer*) lleva el texto del programa por los mismos cables del SWD: no hace falta
+adaptador USB-serie ni pines extra, y el micro no se frena (sirve con audio o control). El programa
+escribe en un buffer en RAM y OpenOCD lo lee mientras corre.
+
+- **En el firmware**: usá SEGGER RTT (`SEGGER_RTT_printf`, viene con CubeIDE/X-CUBE) o la versión mínima
+  de este repo, `firmware/h503_leds/src/rtt.c` (`rtt_init()`, `rtt_escribir()`, `rtt_leer()`). La app busca el
+  bloque de control por el símbolo **`_SEGGER_RTT`** del `.elf`. Ejemplo: `05_contador_rtt`.
+- **En la web**: elegí el `.elf` del programa en *Archivos*, y en *Monitor serie* el puerto
+  **"RTT — por el ST-Link"** → *Abrir*. Lo que escribas en *Enviar* llega al programa (canal de bajada).
+- Funciona junto con la depuración: al iniciar el servidor GDB o la pestaña *Depurar* con un `.elf` que
+  tiene RTT, OpenOCD publica también el canal (puerto `rtt.port`, 9090, en la IP de Tailscale; se puede
+  leer desde la PC con cualquier cliente TCP, p. ej. PuTTY en modo *Raw*).
+- Si el programa todavía no había creado el bloque (por ejemplo, al "Grabar y parar en main"), la
+  depuración vuelve a buscarlo en cada parada.
+
+## USB: diagnóstico y energía por puerto
+
+En *Sistema → USB* se ve todo lo que está enchufado (VID:PID, nombre, puerto serie, en qué hub y puerto).
+Sirve para diagnosticar: un STM32 en modo DFU tiene que aparecer como `0483:df11`.
+
+Con un **hub USB que permita cortar la energía por puerto** (los compatibles con
+[uhubctl](https://github.com/mvp/uhubctl#compatible-usb-hubs)), cada puerto tiene botones **Reiniciar**
+(apaga 3 s y prende), **Apagar** y **Prender**. Protecciones:
+
+- nunca se corta un puerto que lleve a un adaptador de red (en la xM el Ethernet cuelga del mismo chip
+  que los USB: cortarlo dejaría la placa inaccesible);
+- en hubs que cortan todos los puertos juntos (*ganged*) sólo se permite Reiniciar: uhubctl corre en la
+  placa y vuelve a dar energía solo, aunque la red se corte mientras tanto;
+- no se corta nada mientras hay una operación en curso.
+
+`install.sh` instala uhubctl (`scripts/build_uhubctl.sh`, compila en segundos en 16.04) y una regla
+udev para que el servicio pueda manejar los hubs sin root. Si el hub de la placa no lo soporta, la
+sección lo dice y sigue mostrando la lista de dispositivos.
+
+## MAC fija (BeagleBoard-xM)
+
+El chip de red de la xM (LAN9514) no tiene EEPROM: el driver inventa una MAC distinta en cada arranque y
+el router le da otra IP local. `scripts/fijar_mac.sh` guarda la MAC actual en `/etc/stm32-bench/mac.conf`
+y un servicio (`stm32-bench-mac`) la pone en cada arranque, antes de levantar la red. `instalar_todo.sh`
+lo hace solo la primera vez; a mano:
+
+```bash
+sudo bash scripts/fijar_mac.sh                    # fija la MAC de ahora (la IP actual se conserva)
+sudo bash scripts/fijar_mac.sh 02:5e:42:00:00:01  # otra MAC (se aplica al reiniciar)
+sudo bash scripts/fijar_mac.sh --quitar
+```
+
+Conviene además reservar una IP para esa MAC en el router (DHCP estático). En *Sistema* se ve la MAC y
+si está fija.
+
 ## Depurar en la web (pestaña *Depurar*)
 
 Para depurar sin instalar nada en la PC. La app maneja GDB en la placa (en modo MI, la interfaz para
@@ -733,6 +788,8 @@ app/
   chips.py           chips.yaml y verificación de .cfg
   compat.py          ¿este archivo es para esta placa? (ARM/ESP/AVR)
   elfinfo.py         fuentes y líneas con código de un .elf (DWARF), búsqueda de fuentes en el proyecto
+  rtt.py             cliente del canal RTT de OpenOCD (como un puerto más del monitor serie)
+  usb.py             dispositivos USB (sysfs) y energía por puerto (uhubctl)
   debugger/          pestaña Depurar: mi.py (protocolo GDB/MI), session.py (sesión de GDB)
   firmware_meta.py   vínculo archivo -> placa (firmware_meta.json)
   files.py           validación, subida, escaneo, borrado
@@ -764,8 +821,13 @@ tests/               pytest
 - **H5 no conecta con `stlink`**: usá `stlink-dap` (el H5 necesita dapdirect).
 - **Error con `stlink-dap`**: ST-Link V2 con firmware anterior a J24 no soporta dapdirect: actualizalo o
   usá `stlink` (HLA) en chips que lo permitan.
-- **DFU "No apareció el dispositivo"**: estás usando el cable del ST-Link en lugar del USB del STM32,
-  BOOT0 no quedó en 1, falta el reset, o el chip necesita un cristal externo para USB DFU (AN2606).
+- **DFU "No apareció el dispositivo"**: mirá *Sistema → USB* (y el log, que al fallar lista lo que ve la
+  placa por USB). Si no aparece `0483:df11`: cable sólo de carga (probalo en la PC con STM32CubeProgrammer
+  en modo USB), cable en el USB del ST-Link en lugar del del STM32, BOOT0 no quedó en 1 al resetear, algo
+  conectado a los pines de otra interfaz del bootloader (un adaptador serie en PA9/PA10 puede hacer que
+  elija la USART), poca energía en los USB de la xM, o el chip necesita cristal externo para USB DFU (AN2606).
+- **RTT: "no se encontró el bloque de control"**: el programa que corre en el micro no es el `.elf` elegido
+  o no llamó todavía a `rtt_init()`. Grabalo y volvé a abrir RTT.
 - **dfu-util devuelve error después de "File downloaded successfully"** con `:leave`: es habitual
   (el dispositivo se desconecta antes de responder); la app lo trata como éxito y lo avisa en el log.
 - **La web no carga desde tu PC**: ¿Tailscale activo en ambos lados? ¿Tu IP está en
@@ -822,3 +884,9 @@ Verificalo en la BeagleBoard:
     MI contra el OpenOCD real (`-target-download`, `monitor reset halt`, breakpoints de hardware en
     flash, `-exec-interrupt` con `mi-async`), los nombres de registros que da OpenOCD, y el tiempo que
     tarda pyelftools en leer un proyecto grande de CubeIDE (con HAL) en la xM.
+20. **RTT** con el OpenOCD de ST y `stlink-dap`: `rtt setup/start/server start`, `rtt polling_interval`
+    (puede no existir en esa versión: va dentro de `catch`), lectura con el micro corriendo y canal de bajada.
+21. **Energía por puerto**: qué informa `uhubctl` del hub LAN9514 de la xM (¿ppps o ganged?) y de un hub
+    externo; permisos con la regla udev; que Reiniciar devuelva el dispositivo.
+22. **MAC fija**: que `stm32-bench-mac.service` corra antes de que la red tome la interfaz en la imagen
+    rcn-ee (ifupdown/connman) y que la IP local se mantenga después de reiniciar.

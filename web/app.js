@@ -686,7 +686,13 @@ function renderGdb() {
   let note = "";
   if (noGdb) note = "Sólo disponible por SWD con ST-Link (STM32). " + methodReason(state.method, "gdb");
   else if (g.state === "error") note = g.last_error || "";
-  else if (listening) note = `En GDB: target extended-remote ${g.connect}`;
+  else if (listening) {
+    note = `En GDB: target extended-remote ${g.connect}`;
+    if (g.rtt) {
+      const rttLabel = { encontrado: "RTT conectado", buscando: "RTT: buscando el bloque", no_encontrado: "RTT: bloque no encontrado (¿el programa corre?)" };
+      note += ` · ${rttLabel[g.rtt_state] || "RTT"} (puerto ${g.rtt.port})`;
+    }
+  }
   else note = `Puerto ${state.config ? state.config.gdb.port : 3333}, escucha en: ${state.config ? state.config.gdb.bind : ""}`;
   $("gdb-note").textContent = note;
   $("btn-gdb-start").disabled = noGdb || g.active || !!state.job;
@@ -709,6 +715,8 @@ async function startGdb() {
       chip: chip.id,
       interface: $("sel-interface").value || null,
       probe_serial: $("sel-probe").value || null,
+      // Si el .elf elegido usa RTT, OpenOCD publica también ese canal.
+      file: state.file && state.file.kind === "elf" ? state.file.path : null,
     });
     renderGdb();
   } catch (e) {
@@ -1218,10 +1226,14 @@ async function loadSerial() {
     const s = await api("GET", "/api/serial");
     const port = $("sel-port");
     const prevPort = s.port || port.value || prefs.get("serial.port", "");
-    port.replaceChildren(...(s.ports.length
+    // RTT: el "printf" del programa por el ST-Link, sin adaptador (programas con RTT).
+    const options = [el("option", { value: "RTT" }, "RTT — por el ST-Link (programa con RTT, sin adaptador)")];
+    options.push(...(s.ports.length
       ? s.ports.map((p) => el("option", { value: p.device }, `${p.device} — ${p.description}`))
-      : [el("option", { value: "" }, "Sin puertos USB-serie")]));
-    if (s.ports.some((p) => p.device === prevPort)) port.value = prevPort;
+      : [el("option", { value: "", disabled: true }, "(sin puertos USB-serie)")]));
+    port.replaceChildren(...options);
+    if (prevPort === "RTT" || s.ports.some((p) => p.device === prevPort)) port.value = prevPort;
+    else if (s.ports.length) port.value = s.ports[0].device;
     const baud = $("sel-baud");
     const prevBaud = String(s.baud || prefs.get("serial.baud", s.default_baud));
     baud.replaceChildren(...s.bauds.map((b) => el("option", { value: String(b) }, `${b} baud`)));
@@ -1238,7 +1250,7 @@ function renderSerialStatus() {
   $("btn-serial-open").disabled = s.open;
   $("btn-serial-close").disabled = !s.open;
   $("sel-port").disabled = s.open;
-  $("sel-baud").disabled = s.open;
+  $("sel-baud").disabled = s.open || $("sel-port").value === "RTT";
 }
 
 function appendSerial(text, meta) {
@@ -1305,11 +1317,84 @@ async function loadSystem() {
       stat("dfu-util", el("code", {}, s.versions.dfu_util || "no detectado")),
       stat("esptool", el("code", {}, s.versions.esptool || "no detectado")),
       stat("avrdude", el("code", {}, s.versions.avrdude || "no detectado")),
+      stat("MAC (" + (s.mac ? s.mac.interface : "eth0") + ")", s.mac
+        ? `${s.mac.address} · ${s.mac.fixed ? "fija" : "cambia en cada arranque (sudo bash scripts/fijar_mac.sh)"}`
+        : "—"),
     );
     $("pill-host").querySelector("span").textContent = `${s.hostname}${s.tailscale_ip ? " · " + s.tailscale_ip : ""}`;
   } catch (e) {
     /* se reintenta en el próximo ciclo */
   }
+}
+
+// ------------------------------------------------------------------ USB
+
+const USB_ACTIONS = {
+  cycle: { label: "Reiniciar", confirm: "se apaga 3 s y vuelve a prender" },
+  off: { label: "Apagar", confirm: "queda SIN energía hasta que toques Prender" },
+  on: { label: "Prender", confirm: null },
+};
+
+function usbDeviceText(d) {
+  if (!d) return "";
+  const extra = [d.vid_pid].concat(d.serial_ports || [], d.network || []).join(" · ");
+  return [el("div", {}, d.description + (d.product && !d.description.includes(d.product) ? ` (${d.product})` : "")),
+          el("small", { class: "muted" }, extra)];
+}
+
+async function usbAction(hub, port, action) {
+  const info = USB_ACTIONS[action];
+  const who = port.device ? port.device.description : (port.raw || "puerto vacío");
+  if (info.confirm) {
+    const ok = await confirmDialog(`${info.label} USB ${hub.location}, puerto ${port.port}`,
+      `${who}: ${info.confirm}.` + (hub.switching !== "ppps" ? " Este hub corta TODOS sus puertos juntos." : ""),
+      info.label, action === "off");
+    if (!ok) return;
+  }
+  try {
+    renderUsb(await api("POST", "/api/usb/power", { location: hub.location, port: port.port, action }));
+    toast(`USB ${hub.location}.${port.port}: ${info.label.toLowerCase()} listo`);
+  } catch (e) {
+    toast(e.message, true);
+  }
+}
+
+function renderUsb(data) {
+  const power = data.power || {};
+  const box = $("usb-power");
+  if (!power.available) {
+    box.replaceChildren(el("p", { class: "note" }, "Alimentación por puerto: " + (power.message || "no disponible")));
+  } else {
+    box.replaceChildren(...power.hubs.map((hub) => {
+      const rows = hub.ports.map((p) => {
+        const state = !p.powered ? "Apagado" : (p.connected ? "Prendido" : "Vacío");
+        const buttons = p.blocked ? el("small", { class: "muted" }, p.blocked)
+          : el("div", { class: "usb-actions" }, ...p.actions
+            .filter((a) => (a === "on" ? !p.powered : (a === "off" ? p.powered : true)))
+            .map((a) => el("button", { class: "btn small" + (a === "off" ? " danger-outline" : ""), type: "button",
+              onclick: () => usbAction(hub, p, a) }, USB_ACTIONS[a].label)));
+        return el("tr", { class: p.powered ? "" : "off" }, el("td", {}, String(p.port)),
+          el("td", {}, ...(p.device ? usbDeviceText(p.device) : [p.raw || "—"])), el("td", {}, state), el("td", {}, buttons));
+      });
+      return el("div", {},
+        el("div", { class: "usb-hub" }, `Alimentación — hub ${hub.location} `,
+          el("small", {}, `${hub.description} · ${hub.switching === "ppps" ? "corte por puerto" : "corta todos los puertos juntos"}`)),
+        el("table", { class: "table usb-table" },
+          el("thead", {}, el("tr", {}, el("th", {}, "Puerto"), el("th", {}, "Dispositivo"), el("th", {}, "Estado"), el("th", {}, ""))),
+          el("tbody", {}, ...rows)));
+    }));
+  }
+  const devices = (data.devices || []).filter((d) => !d.is_hub);
+  $("usb-table").replaceChildren(
+    el("thead", {}, el("tr", {}, el("th", {}, "Ubicación"), el("th", {}, "Dispositivo"), el("th", {}, "Velocidad"))),
+    el("tbody", {}, ...(devices.length ? devices.map((d) => el("tr", { class: d.vid_pid === "0483:df11" ? "dfu" : "" },
+      el("td", {}, el("code", {}, d.path)), el("td", {}, ...usbDeviceText(d)),
+      el("td", {}, d.speed_mbps ? `${d.speed_mbps} Mbit/s` : "—")))
+      : [el("tr", {}, el("td", { colspan: 3 }, "No hay dispositivos USB conectados"))])));
+}
+
+async function loadUsb() {
+  try { renderUsb(await api("GET", "/api/usb")); } catch (e) { /* se reintenta */ }
 }
 
 async function powerAction(kind) {
@@ -1460,7 +1545,7 @@ function showTab(name) {
     btn.setAttribute("aria-selected", btn.dataset.tab === name ? "true" : "false");
   }
   for (const tab of document.querySelectorAll(".tab")) tab.hidden = tab.id !== "tab-" + name;
-  if (name === "system") loadSystem();
+  if (name === "system") { loadSystem(); loadUsb(); }
   if (name === "history") loadHistory();
   if (name === "serial") loadSerial();
   document.querySelector(".col-right").classList.toggle("debugging", name === "debug");
@@ -1514,6 +1599,24 @@ function bindUI() {
     if (!port) { toast("No hay puerto elegido", true); return; }
     prefs.set("serial.port", port);
     prefs.set("serial.baud", baud);
+    if (port === "RTT") {
+      const chip = currentChip();
+      if (!state.file || state.file.kind !== "elf") {
+        toast("Para RTT elegí en Archivos el .elf del programa que está corriendo (con RTT)", true);
+        return;
+      }
+      try {
+        const r = await api("POST", "/api/rtt/open", {
+          chip: chip.id, file: state.file.path,
+          interface: $("sel-interface").value || null, probe_serial: $("sel-probe").value || null,
+        });
+        state.serial = Object.assign(state.serial || {}, r.serial);
+        state.gdb = r.gdb;
+        renderSerialStatus();
+        renderGdb();
+      } catch (e) { toast(e.message, true); }
+      return;
+    }
     try { state.serial = await api("POST", "/api/serial/open", { port, baud }); renderSerialStatus(); }
     catch (e) { toast(e.message, true); }
   });
@@ -1522,6 +1625,7 @@ function bindUI() {
     catch (e) { toast(e.message, true); }
   });
   $("btn-serial-clear").addEventListener("click", () => $("serial-out").replaceChildren());
+  $("sel-port").addEventListener("change", renderSerialStatus);
   $("serial-form").addEventListener("submit", async (ev) => {
     ev.preventDefault();
     const input = $("inp-serial");
@@ -1550,6 +1654,7 @@ function bindUI() {
   }
   $("btn-poweroff").addEventListener("click", () => powerAction("poweroff"));
   $("btn-reboot").addEventListener("click", () => powerAction("reboot"));
+  $("btn-usb-refresh").addEventListener("click", loadUsb);
   bindDebugUI();
 }
 
@@ -1586,7 +1691,7 @@ async function init() {
 
   // Refrescos periódicos livianos (sin dfu-util salvo con DFU elegido).
   setInterval(() => { if (!document.hidden && !state.job) refreshProbes(); }, 10000);
-  setInterval(() => { if (!document.hidden) loadSystem(); }, 15000);
+  setInterval(() => { if (!document.hidden) loadSystem(); if (!document.hidden && state.tab === "system") loadUsb(); }, 15000);
 }
 
 init();

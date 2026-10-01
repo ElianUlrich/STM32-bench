@@ -124,6 +124,7 @@ def collect(projects_dir: Path, tailscale_iface: str, mock: bool) -> Dict[str, o
             "temperatures": [{"name": "cpu (simulado)", "celsius": 47.5}],
             "disk_root": {"total": 16 * 2**30, "used": 5 * 2**30, "free": 11 * 2**30},
             "disk_projects": disk(projects_dir),
+            "mac": {"interface": "eth0", "address": "02:5e:42:00:00:01", "fixed": False},
         }
     try:
         load = list(os.getloadavg())
@@ -140,7 +141,17 @@ def collect(projects_dir: Path, tailscale_iface: str, mock: bool) -> Dict[str, o
         "temperatures": temperatures(),
         "disk_root": disk(Path("/")),
         "disk_projects": disk(projects_dir),
+        "mac": mac_info(),
     }
+
+
+def mac_info(interface: str = "eth0") -> Optional[Dict[str, object]]:
+    """MAC de la red y si está fijada con scripts/fijar_mac.sh (la xM la cambia en cada arranque)."""
+    address = _read_first_line(Path(f"/sys/class/net/{interface}/address"))
+    if address is None:
+        return None
+    return {"interface": interface, "address": address,
+            "fixed": Path("/etc/stm32-bench/mac.conf").is_file()}
 
 
 class PowerError(RuntimeError):
