@@ -15,6 +15,7 @@ from __future__ import annotations
 import os
 import re
 import threading
+import time
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Dict, List, Optional, Set, Tuple
@@ -242,39 +243,62 @@ def locate(name: str, elf_dir: Path, root: Path, index: Dict[str, List[Path]]) -
     return best
 
 
-_cache: Dict[Tuple[str, int, int], DebugInfo] = {}
+# La lectura del DWARF es lo lento (pyelftools es Python puro): se guarda por tamaño y fecha
+# del .elf. La búsqueda de los fuentes se rehace cada vez, porque se pueden subir después.
+_lines_cache: Dict[Tuple[str, int, int], Tuple[Dict[str, Set[int]], bool]] = {}
+_index_cache: Dict[str, Tuple[float, Dict[str, List[Path]]]] = {}
 _cache_lock = threading.Lock()
+INDEX_TTL_S = 3.0
 
 
-def load_debug_info(projects_dir: Path, elf: Path) -> DebugInfo:
-    """DebugInfo del .elf (bloqueante; con caché por tamaño y fecha)."""
+def _cached_line_info(elf: Path) -> Tuple[Dict[str, Set[int]], bool]:
     st = elf.stat()
     key = (str(elf), st.st_size, int(st.st_mtime_ns))
     with _cache_lock:
-        if key in _cache:
-            return _cache[key]
-    lines, has_main = read_line_info(elf)
-    root = project_root(projects_dir, elf)
+        if key in _lines_cache:
+            return _lines_cache[key]
+    result = read_line_info(elf)
+    with _cache_lock:
+        if len(_lines_cache) > 32:
+            _lines_cache.clear()
+        _lines_cache[key] = result
+    return result
+
+
+def _cached_index(root: Path) -> Dict[str, List[Path]]:
+    now = time.monotonic()
+    with _cache_lock:
+        hit = _index_cache.get(str(root))
+        if hit and now - hit[0] < INDEX_TTL_S:
+            return hit[1]
     index = _index_sources(root)
+    with _cache_lock:
+        _index_cache[str(root)] = (now, index)
+    return index
+
+
+def load_debug_info(projects_dir: Path, elf: Path) -> DebugInfo:
+    """DebugInfo del .elf (bloqueante).
+
+    Los números de fuente se asignan sobre TODOS los archivos de la tabla de
+    líneas (se encuentren o no), así no cambian cuando después se suben las
+    fuentes: la sesión de depuración y los breakpoints guardados siguen valiendo.
+    """
+    lines, has_main = _cached_line_info(elf)
+    root = project_root(projects_dir, elf)
+    index = _cached_index(root)
     projects_real = Path(os.path.realpath(projects_dir))
     sources: List[SourceFile] = []
     missing: List[str] = []
     for name in sorted(lines, key=lambda n: (n.rsplit("/", 1)[-1].lower().endswith(".h"), n.lower())):
         path = locate(name, elf.parent, root, index)
-        if path is None:
+        if path is None and not name.lower().endswith(".h"):
             # Los encabezados (stdint.h del compilador...) no se suben con el proyecto: no es un error.
-            if not name.lower().endswith(".h"):
-                missing.append(name)
-            continue
-        sources.append(SourceFile(id=len(sources), name=name, base=name.rsplit("/", 1)[-1],
-                                  lines=sorted(lines[name]), path=path,
-                                  rel=Path(os.path.realpath(path)).relative_to(projects_real).as_posix()))
-    info = DebugInfo(elf=elf, sources=sources, has_main=has_main, missing=missing)
-    with _cache_lock:
-        if len(_cache) > 32:
-            _cache.clear()
-        _cache[key] = info
-    return info
+            missing.append(name)
+        sources.append(SourceFile(
+            id=len(sources), name=name, base=name.rsplit("/", 1)[-1], lines=sorted(lines[name]), path=path,
+            rel=Path(os.path.realpath(path)).relative_to(projects_real).as_posix() if path else None))
+    return DebugInfo(elf=elf, sources=sources, has_main=has_main, missing=missing)
 
 
 def read_source(src: SourceFile) -> str:

@@ -86,8 +86,17 @@ def test_sources_missing_and_found_by_name(tmp_path):
     (proj / "otra" / "carpeta").mkdir(parents=True)
     (proj / "otra" / "carpeta" / "placa.c").write_text("// placa\n")
     info = load_debug_info(tmp_path / "p", proj / "Debug" / "x.elf")
-    assert [s.base for s in info.sources] == ["placa.c"]
+    assert [s["base"] for s in info.to_public()["sources"]] == ["placa.c"]
     assert "src/03_contador_binario.c" in info.missing
+    ids = {s.name: s.id for s in info.sources}
+    # Llegan las fuentes que faltaban: se encuentran y los números no cambian.
+    (proj / "src").mkdir()
+    (proj / "src" / "03_contador_binario.c").write_text("// main\n")
+    import app.elfinfo as elfinfo
+    elfinfo._index_cache.clear()
+    info2 = load_debug_info(tmp_path / "p", proj / "Debug" / "x.elf")
+    assert {s.name: s.id for s in info2.sources} == ids
+    assert {s["base"] for s in info2.to_public()["sources"]} == {"placa.c", "03_contador_binario.c"}
 
 
 def test_elf_without_debug_info(tmp_path):
@@ -266,7 +275,7 @@ def test_upload_project_zip_and_debug_sources(client):
     assert r.status_code == 200, r.text
     res = r.json()
     elf = "_subidos/zips/h503/build/03_contador_binario.elf"
-    assert res["folder"] == "_subidos/zips/h503" and res["path"] == elf and res["sources"] == 6
+    assert res["folder"] == "_subidos/zips/h503" and res["path"] == elf and res["sources"] == len(list((REAL_ELF.parent.parent / "src").glob("*.[ch]")))
     assert any("ignoraron 4" in w for w in res["warnings"])
     files = [f for p in client.get("/api/files").json()["projects"] for f in p["files"]]
     assert next(f for f in files if f["path"] == elf)["target"] == "stm32h503cb"
@@ -294,3 +303,27 @@ def test_zip_size_limit(client, monkeypatch):
 def test_mi_status_record_without_name():
     rec = parse_line('+download,{section=".text",section-size="308",total-size="1848"}')
     assert rec.kind == "status" and rec.cls == "download" and rec.results["_"]["section"] == ".text"
+
+
+def test_sources_uploaded_during_session(client, settings):
+    """Se depura un .elf suelto y después se suben sus fuentes: la sesión las toma sin reiniciar."""
+    elf_rel = "_subidos/general/solo.elf"
+    r = client.post("/api/files/upload", files={"file": ("solo.elf", REAL_ELF.read_bytes(), "application/octet-stream")},
+                    data={"project": "general", "target": "stm32h503cb"})
+    assert r.status_code == 200, r.text
+    assert start(client, mode="attach", file=elf_rel).status_code == 200
+    st = client.get("/api/debug").json()
+    assert st["frame"]["source_id"] is None                          # sin fuentes todavía
+    assert [g["name"] for g in st["globals"]] == ["contador", "ms_transcurridos"]   # globales igual
+    assert upload_zip(client, project_zip(), name="h503.zip").status_code == 200    # proyecto "zips"
+    src_dir = settings.projects_dir / "_subidos" / "general" / "h503" / "src"
+    src_dir.mkdir(parents=True)
+    for f in (REAL_ELF.parent.parent / "src").glob("*.c"):
+        (src_dir / f.name).write_bytes(f.read_bytes())
+    import app.elfinfo as elfinfo
+    elfinfo._index_cache.clear()
+    sources = client.get("/api/debug/sources", params={"file": elf_rel}).json()["sources"]
+    assert {s["base"] for s in sources} >= {"placa.c", "03_contador_binario.c"}
+    st = client.get("/api/debug").json()
+    assert st["frame"]["source_id"] is not None and st["frame"]["file"] == "placa.c"
+    client.post("/api/debug/stop")

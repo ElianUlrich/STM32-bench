@@ -756,7 +756,8 @@ async function loadDebugSources(force) {
     renderDebugSources();
     return;
   }
-  if (!force && state.dbg.sourcesFor === elf) return;
+  if (!force && !state.dbg.stale && state.dbg.sourcesFor === elf) return;
+  state.dbg.stale = false;
   state.dbg.sourcesFor = elf;
   state.dbg.texts = {};
   state.dbg.current = null;
@@ -1416,6 +1417,9 @@ function handleEvent(ev) {
       break;
     case "files_changed":
       loadFiles();
+      // Pudieron llegar las fuentes del .elf que se está mirando (p. ej. un .zip).
+      state.dbg.stale = true;
+      if (state.tab === "debug") loadDebugSources(true);
       break;
     case "debug":
       applyDebugStatus(ev.status);

@@ -203,6 +203,7 @@ class DebugSession:
         self.stop_reason: Optional[str] = None
         self._target_running = False          # estado real del chip (state se actualiza al leer variables)
         self._last_section: Optional[str] = None
+        self._frames_raw: List[Dict[str, Any]] = []
         self._stop_seq = 0
         self._reg_index: Dict[str, int] = {}
         self._global_names: List[str] = []
@@ -298,6 +299,14 @@ class DebugSession:
             await self._refresh()
             self.state = "stopped"
         self.publish()
+
+    def set_debuginfo(self, info: DebugInfo) -> None:
+        """Fuentes recién subidas para el .elf de la sesión: se vuelve a ubicar la pila."""
+        self.debuginfo = info
+        if self._frames_raw:
+            self.stack = [self._frame(f) for f in self._frames_raw]
+            self.frame = self.stack[0] if self.stack else None
+            self.publish()
 
     # ------------------------------------------------------------------ inicio
     async def start(self, *, gdb_argv: List[str], elf: Path, elf_rel: str, debuginfo: DebugInfo,
@@ -407,7 +416,12 @@ class DebugSession:
             return []
         names: List[str] = []
         for group in (rec.results.get("symbols") or {}).get("debug", []):
-            if info.find(group.get("filename"), group.get("fullname")) is None:
+            # Del proyecto: está en el .elf como fuente propio, o es una ruta relativa que no sube
+            # de carpeta (las bibliotecas del compilador traen rutas absolutas o con "../..").
+            filename = str(group.get("filename") or "").replace("\\", "/")
+            own = info.find(filename, group.get("fullname")) is not None or (
+                filename and not filename.startswith(("/", "..")) and ":" not in filename)
+            if not own:
                 continue
             for sym in group.get("symbols", []):
                 name = str(sym.get("name", ""))
@@ -446,6 +460,7 @@ class DebugSession:
             frames = (await self._send("-stack-list-frames 0 19")).results.get("stack", [])
         except DebugError:
             frames = []
+        self._frames_raw = frames
         self.stack = [self._frame(f) for f in frames]
         self.frame = self.stack[0] if self.stack else None
         self.locals = []

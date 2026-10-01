@@ -294,6 +294,8 @@ async def debug_sources(request: Request, file: str, _: str = Depends(require_us
     """Archivos fuente del .elf encontrados en la carpeta del proyecto."""
     bench = get_bench(request)
     _, info = await asyncio.get_running_loop().run_in_executor(None, bench.debug_elf, file)
+    if bench.debug.active and bench.debug.info.get("elf") == file:
+        bench.debug.set_debuginfo(info)          # pudieron subirse las fuentes con la sesión iniciada
     return dict(info.to_public(), file=file)
 
 
