@@ -12,7 +12,10 @@ de programación y depuración remota de microcontroladores **STM32**, **ESP32/E
 - grabar, verificar, borrar, resetear e identificar **ESP32 / ESP8266** por puerto serie con `esptool`;
 - grabar, verificar, resetear e identificar **Arduino** (Uno, Nano, Mega, Leonardo, Micro, Pro Mini…)
   con `avrdude` por su bootloader, o cualquier ATmega con un programador **ISP** (USBasp/USBtiny);
-- levantar un **servidor GDB** para depurar desde `arm-none-eabi-gdb`, VS Code o STM32CubeIDE;
+- **depurar el STM32 desde la misma web** (pestaña *Depurar*): código fuente con breakpoints,
+  continuar/pausar/paso a paso, variables locales y globales editables, expresiones, pila y registros
+  (ver [Depurar en la web](#depurar-en-la-web-pestaña-depurar));
+- o levantar un **servidor GDB** para depurar desde `arm-none-eabi-gdb`, VS Code o STM32CubeIDE;
 - ver en vivo la salida de OpenOCD/dfu-util y un **monitor serie**;
 - ver el estado de la placa y **apagarla o reiniciarla** con seguridad.
 
@@ -34,6 +37,8 @@ de programación y depuración remota de microcontroladores **STM32**, **ESP32/E
 - ✔ Soporte de **ESP32/ESP8266** (esptool) y **Arduino/AVR** (avrdude): 28 placas en `chips.yaml`,
   vínculo binario ↔ placa y verificación del ID del chip en STM32. Probado en modo mock; falta en
   hardware real.
+- ⏳ **Depurador en la web** (pestaña *Depurar*): hecho y probado con el simulador de GDB; falta
+  compilar GDB 12 en la placa (`scripts/build_gdb.sh`, en curso) y probarlo con el H503.
 - ⏳ USB DFU del H503: el chip entra al bootloader pero la BeagleBoard no lo enumera (sospecha: cable
   USB-C solo de carga o el puerto).
 - ✔ **Depuración remota con GDB probada** (30/09/2026): con el contador binario
@@ -48,7 +53,7 @@ Contenido: [Hardware](#hardware-y-conexiones) · [Seguridad](#seguridad) ·
 [Instalación](#instalación-en-la-beagleboard-xm) · [Tailscale](#tailscale) · [Uso](#uso-de-la-interfaz) ·
 [Configuración](#configuración) · [ESP32 y Arduino](#esp32-y-arduino) ·
 [Binario ↔ placa](#binario--placa-no-grabar-el-micro-equivocado) · [DFU y BootControl](#usb-dfu-y-bootcontrol) ·
-[Depurar con GDB](#depurar-con-gdb) · [Syncthing](#syncthing-alternativa-para-la-carpeta-de-proyectos) ·
+[Depurar en la web](#depurar-en-la-web-pestaña-depurar) · [Depurar con GDB](#depurar-con-gdb) · [Syncthing](#syncthing-alternativa-para-la-carpeta-de-proyectos) ·
 [SD en solo lectura](#opcional-sistema-de-archivos-en-solo-lectura) · [Desarrollo](#desarrollo-en-la-pc-modo-mock) ·
 [Problemas](#solución-de-problemas) · [Pendiente de verificar](#pendiente-de-verificar-en-hardware)
 
@@ -159,6 +164,19 @@ El OpenOCD de Debian es demasiado viejo para H5/H7. `scripts/build_openocd.sh` c
 **Es lento: en la xM tarda aproximadamente entre 45 y 90 minutos.** Correlo dentro de `tmux`
 (si se corta el SSH, volvés con `tmux attach -t openocd`). Es **idempotente**: si el commit pedido
 ya está instalado no recompila (`FORCE=1` para forzar; `OPENOCD_REF=<tag>` para otra versión).
+
+### 1b. GDB para la pestaña *Depurar* (opcional, tarda horas)
+
+La pestaña *Depurar* maneja GDB en la placa. El de Ubuntu 16.04 (`gdb-multiarch` 7.11) no lee el
+formato DWARF 5 que genera el GCC de STM32CubeIDE, así que se compila GDB 12 sólo para ARM:
+
+```bash
+tmux new -s gdb
+sudo bash scripts/build_gdb.sh        # 3 a 6 horas en la xM; queda /usr/local/bin/arm-none-eabi-gdb
+```
+
+Es idempotente y usa un swap temporal de 1 GB. Sin este paso funciona todo lo demás (y el servidor
+GDB para depurar desde la PC); la pestaña *Depurar* avisa que falta el GDB.
 
 ### 2. La app
 
@@ -289,6 +307,7 @@ Nota H5: la CPU del H5 está en el AP 1 del DAP, así que **no funciona con la i
 ### `bench.yaml`
 
 - `openocd.binary`, `openocd.scripts_dir`, `dfu_util.binary` y los timeouts.
+- `debugger.gdb_binary`: el GDB que usa la pestaña *Depurar* (`/usr/local/bin/arm-none-eabi-gdb`).
 - `esptool.binary` (vacío: usa el esptool del venv, `python -m esptool`) y `esptool.timeout_s`;
   `avrdude.binary` y `avrdude.timeout_s`.
 - `interfaces`: `stlink` (`interface/stlink.cfg`, `hla_swd`) y `stlink-dap`
@@ -434,6 +453,63 @@ No los conectes directo a BOOT0 ni a NRST del STM32 (3,3 V): hace falta adaptaci
   el **pinmux** del pin esté en modo GPIO. El ejemplo de `bench.yaml` (`gpiochip4`, líneas 11 y 12)
   es solo ilustrativo.
 - Probá sin el STM32 conectado: `gpioset gpiochip4 11=1` y medí con el tester.
+
+## Depurar en la web (pestaña *Depurar*)
+
+Para depurar sin instalar nada en la PC. La app maneja GDB en la placa (en modo MI, la interfaz para
+programas) y lo conecta al servidor GDB de OpenOCD:
+
+```
+navegador ──HTTP/SSE──► app (DebugSession) ──MI──► arm-none-eabi-gdb ──TCP──► OpenOCD :3333 ──SWD──► STM32
+```
+
+**Qué hace falta**
+
+- Un `.elf` compilado con información de depuración (configuración *Debug*, `-g`), **asignado a su
+  placa** como cualquier firmware.
+- **Las fuentes** (`.c`, `.h`, `.s`) en la carpeta del proyecto. El `.elf` guarda las rutas de la PC
+  donde se compiló (`C:/Users/.../Core/Src/main.c`); la app las busca dentro del proyecto: relativas a
+  la carpeta del `.elf` y sus padres (CubeIDE: `../Core/Src/main.c`) o por nombre de archivo. Dos formas:
+  - subir el proyecto como **`.zip`** en la pestaña Archivos (con la placa elegida). Se extrae en
+    `_subidos/<proyecto>/<carpeta>/` sólo lo que sirve: `.elf/.hex/.bin`, `.c/.h/.s/.cpp/.ld`. Lo
+    demás (`.o`, `.settings`...) se ignora. Subir de nuevo el mismo `.zip` reemplaza la carpeta;
+  - o sincronizar la carpeta del proyecto con Syncthing.
+- GDB 12 en la placa (`scripts/build_gdb.sh`, ver Instalación) y `debugger.gdb_binary` en `bench.yaml`.
+
+**Uso**
+
+1. Elegí el `.elf` en *Archivos* y abrí *Depurar*. Ya se ve el código: los números de línea en negrita
+   tienen código; **clic en el número = breakpoint** (antes de iniciar quedan como `○` y se aplican al
+   empezar).
+2. Elegí cómo empezar y tocá **Iniciar depuración**:
+   - *Grabar y parar en main*: graba el `.elf` (`load` de GDB), reinicia y frena al principio de `main()`;
+   - *Reiniciar y parar en main*: igual pero sin grabar (el programa ya está en el chip);
+   - *Conectarse sin reiniciar*: frena el programa donde esté, como el `target extended-remote` de antes.
+
+   Si el servidor GDB no estaba iniciado, se inicia solo. Antes de grabar se lee el **ID del chip**
+   (`DBGMCU_IDCODE`) y si no es el de la placa, no se toca nada.
+3. Controles (y atajos, con la pestaña abierta): **Continuar** (F5), **Pausar** (F6), **Paso** (F10,
+   ejecuta la línea sin entrar a las funciones), **Entrar** (F11), **Salir** (Shift+F11, termina la
+   función actual), **Reset** (reinicia el micro y queda detenido).
+4. Al detenerse se marca la línea actual (y se abre el archivo que corresponda) y se actualizan:
+   - **Variables locales** y **globales** del proyecto: clic en un valor para cambiarlo
+     (números `123`, `0x7B`, `0b101`, `'a'`, `true/false`). Los que cambiaron desde la última parada
+     se ven en rojo;
+   - **Vigilar**: expresiones de C (`contador & 0xFF`, `buffer[3]`, `p->campo`, `$pc`). Por
+     seguridad no se aceptan variables de GDB con `$` salvo registros;
+   - **Pila de llamadas** (clic = ir a esa línea), **breakpoints** (con la cantidad de veces que se
+     cumplieron) y **registros** (r0–r12, sp, lr, pc, xpsr, msp, psp...).
+5. **Detener** desconecta GDB y el programa sigue corriendo en el chip. Los breakpoints quedan
+   guardados (en el navegador) para la próxima sesión.
+
+Notas:
+
+- OpenOCD acepta **un solo cliente GDB**: mientras depurás en la web no se puede conectar un GDB
+  externo, y al revés. Flashear desde *Acciones* detiene la depuración (pide confirmación).
+- Agregar o sacar un breakpoint con el programa corriendo lo pausa un instante y lo reanuda.
+- El STM32 tiene pocos breakpoints de hardware (8 en el H5, 6 en F1/F4); si se pasa del límite GDB
+  avisa al continuar.
+- Sólo STM32 por SWD. Todavía no hay vista de memoria, watchpoints ni periféricos por nombre (SVD).
 
 ## Depurar con GDB
 
@@ -595,7 +671,9 @@ proyectos de ejemplo en `dev-data/proyectos/`:
 - `demo-blink/Debug/` (`.elf`, `.hex`, `.bin`): todo funciona;
 - `casos-dfu/con-hueco.hex`: DFU avisa de segmentos discontinuos;
 - `casos-dfu/flash-externa.hex`: DFU rechaza datos fuera de la flash;
-- `casos-dfu/demo-falla.elf`: OpenOCD simula una verificación fallida.
+- `casos-dfu/demo-falla.elf`: OpenOCD simula una verificación fallida;
+- `h503-contador/` (el contador binario real, `.elf` + fuentes): para la pestaña *Depurar*, con
+  `scripts/mock_gdb.py`, que simula GDB ejecutando ese programa con sus líneas reales.
 
 Otras fallas simuladas: `BENCH_MOCK_FAIL=connect` (OpenOCD no conecta al target) y
 `BENCH_MOCK_DFU_LEAVE_ERROR=1` (el error típico de dfu-util al salir con `:leave`).
@@ -614,7 +692,10 @@ método, conversión elf/hex→bin, flujo de BootControl (gpio con driver falso,
 DFU completo con el simulador), detección de ST-Link por sysfs, autenticación y la API, análisis de
 `.bin` de ESP y `.hex` de AVR, comandos de esptool/avrdude, vínculo archivo ↔ placa y flujos completos
 de ESP32, Uno, Leonardo, ISP e identificación de STM32 con los simuladores (`mock_esptool.py`,
-`mock_avrdude.py`, `mock_openocd.py`).
+`mock_avrdude.py`, `mock_openocd.py`). Para el depurador: el protocolo GDB/MI, la validación de
+expresiones y asignaciones, la lectura de fuentes y líneas del `.elf` (DWARF 3 y 5, rutas de Windows),
+la subida de proyectos `.zip` (rutas maliciosas, límites) y sesiones completas con `mock_gdb.py`
+(breakpoints, paso a paso, variables, pausa, reset, chip equivocado).
 
 ## Estructura del repositorio
 
@@ -626,6 +707,8 @@ app/
   settings.py        variables de entorno y bench.yaml
   chips.py           chips.yaml y verificación de .cfg
   compat.py          ¿este archivo es para esta placa? (ARM/ESP/AVR)
+  elfinfo.py         fuentes y líneas con código de un .elf (DWARF), búsqueda de fuentes en el proyecto
+  debugger/          pestaña Depurar: mi.py (protocolo GDB/MI), session.py (sesión de GDB)
   firmware_meta.py   vínculo archivo -> placa (firmware_meta.json)
   files.py           validación, subida, escaneo, borrado
   convert.py         .elf/.hex -> .bin (DFU)
@@ -639,7 +722,7 @@ app/
   history.py         historial (JSON Lines)
 web/                 index.html, app.js, style.css, login (sin build, sin dependencias JS)
 config/              chips.yaml, bench.yaml, bench.example.env
-scripts/             build_openocd.sh, install.sh, hash_password.py, dev_run.*, simuladores
+scripts/             build_openocd.sh, build_gdb.sh, install.sh, hash_password.py, dev_run.*, simuladores
 deploy/              systemd, udev, sudoers
 firmware/h503_leds/  firmware de prueba para STM32H503 (LEDs en PA0..PA7), fuentes y compilados
 docs/                documentación PDF y su generador
@@ -710,3 +793,7 @@ Verificalo en la BeagleBoard:
     Leonardo (toque de 1200 baudios y cambio de puerto), y un USBasp por ISP.
 18. Que cerrar y reabrir el monitor serie durante una grabación funcione con los drivers reales
     (cdc_acm, cp210x, ch341) del kernel 4.9.
+19. **Pestaña Depurar** con el H503: compilación de GDB 12 en la xM (`build_gdb.sh`), los comandos
+    MI contra el OpenOCD real (`-target-download`, `monitor reset halt`, breakpoints de hardware en
+    flash, `-exec-interrupt` con `mi-async`), los nombres de registros que da OpenOCD, y el tiempo que
+    tarda pyelftools en leer un proyecto grande de CubeIDE (con HAL) en la xM.

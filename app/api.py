@@ -96,6 +96,8 @@ async def upload(request: Request, file: UploadFile = File(...), project: str = 
     chip = bench.chip(target)
     max_bytes = bench.cfg.max_upload_mb * 1024 * 1024
     filename = file.filename or ""
+    if filename.lower().endswith(".zip"):
+        return await _upload_project_zip(bench, chip, project, filename, file, max_bytes)
     result: Dict[str, Any] = {}
 
     def validator(tmp):
@@ -109,6 +111,39 @@ async def upload(request: Request, file: UploadFile = File(...), project: str = 
     compat = result.get("compat")
     return {"ok": True, "path": saved.rel_path, "size": saved.size, "target": chip.id,
             "warnings": compat.warnings if compat else []}
+
+
+async def _upload_project_zip(bench: Bench, chip, project: str, filename: str, file: UploadFile,
+                              max_bytes: int) -> Dict[str, Any]:
+    """Proyecto completo en .zip (firmware + fuentes, para depurar). Se asigna la placa
+    a los binarios compatibles con ella; si ninguno lo es, se rechaza el .zip."""
+    ok: Dict[str, Any] = {}
+    rejected: list = []
+
+    def validator(items):
+        for rel, path in items:
+            try:
+                ok[rel] = check_file_for_chip(path, chip)
+            except fileops.FileValidationError as exc:
+                rejected.append(f"{rel}: {exc}")
+        if not ok:
+            raise fileops.FileValidationError(
+                f"Ningún binario del .zip corresponde a {chip.name}. " + " ".join(rejected[:3]))
+
+    saved = await asyncio.get_running_loop().run_in_executor(
+        None, lambda: fileops.save_project_zip(bench.settings.projects_dir, project, filename,
+                                               file.file, max_bytes, validator=validator))
+    warnings = []
+    for rel, compat in ok.items():
+        bench.meta.assign(f"{saved.folder}/{rel}", chip.id)
+        warnings += compat.warnings
+    warnings += [f"Sin asignar (no es para {chip.name}): {r}" for r in rejected]
+    if saved.skipped:
+        warnings.append(f"Se ignoraron {saved.skipped} archivos que no son firmware ni fuentes")
+    bench.bus.publish({"type": "files_changed"})
+    elfs = [f"{saved.folder}/{rel}" for rel in ok if rel.lower().endswith(".elf")]
+    return {"ok": True, "folder": saved.folder, "path": (elfs or [f"{saved.folder}/{r}" for r in ok])[0],
+            "firmware": saved.firmware, "sources": saved.sources, "target": chip.id, "warnings": warnings}
 
 
 class TargetBody(BaseModel):
@@ -218,7 +253,104 @@ async def gdb_start(body: GdbStartBody, request: Request, _: str = Depends(requi
 
 @router.post("/gdb/stop")
 async def gdb_stop(request: Request, _: str = Depends(require_user)) -> Dict[str, Any]:
-    return await get_bench(request).gdb.stop()
+    return await get_bench(request).stop_gdb()
+
+
+# ------------------------------------------------------------------- depurador web
+
+class DebugStartBody(BaseModel):
+    chip: str
+    file: str
+    interface: Optional[str] = None
+    probe_serial: Optional[str] = None
+    mode: str = "load"          # load = grabar y parar en main · reset = reiniciar · attach = donde esté
+
+
+class DebugControlBody(BaseModel):
+    action: str
+
+
+class BreakpointBody(BaseModel):
+    source_id: int
+    line: int
+
+
+class WatchBody(BaseModel):
+    expr: str
+
+
+class SetVarBody(BaseModel):
+    name: str
+    value: str
+
+
+@router.get("/debug")
+async def debug_status(request: Request, _: str = Depends(require_user)) -> Dict[str, Any]:
+    return get_bench(request).debug.status()
+
+
+@router.get("/debug/sources")
+async def debug_sources(request: Request, file: str, _: str = Depends(require_user)) -> Dict[str, Any]:
+    """Archivos fuente del .elf encontrados en la carpeta del proyecto."""
+    bench = get_bench(request)
+    _, info = await asyncio.get_running_loop().run_in_executor(None, bench.debug_elf, file)
+    return dict(info.to_public(), file=file)
+
+
+@router.get("/debug/source")
+async def debug_source(request: Request, file: str, id: int, _: str = Depends(require_user)) -> Dict[str, Any]:
+    """Texto de un archivo fuente, elegido por número (nunca por ruta)."""
+    from .elfinfo import DebugInfoError, read_source
+    bench = get_bench(request)
+    loop = asyncio.get_running_loop()
+    _, info = await loop.run_in_executor(None, bench.debug_elf, file)
+    try:
+        src = info.by_id(id)
+        text = await loop.run_in_executor(None, read_source, src)
+    except DebugInfoError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    return {"id": src.id, "name": src.name, "base": src.base, "rel": src.rel, "lines": src.lines, "text": text}
+
+
+@router.post("/debug/start")
+async def debug_start(body: DebugStartBody, request: Request, _: str = Depends(require_user)) -> Dict[str, Any]:
+    return await get_bench(request).start_debug(body.chip, body.interface, body.probe_serial, body.file, body.mode)
+
+
+@router.post("/debug/stop")
+async def debug_stop(request: Request, _: str = Depends(require_user)) -> Dict[str, Any]:
+    return await get_bench(request).debug.stop()
+
+
+@router.post("/debug/control")
+async def debug_control(body: DebugControlBody, request: Request, _: str = Depends(require_user)) -> Dict[str, Any]:
+    return await get_bench(request).debug.control(body.action)
+
+
+@router.post("/debug/breakpoint")
+async def debug_breakpoint(body: BreakpointBody, request: Request, _: str = Depends(require_user)) -> Dict[str, Any]:
+    """Pone o saca un breakpoint en esa línea."""
+    return await get_bench(request).debug.toggle_breakpoint(body.source_id, body.line)
+
+
+@router.post("/debug/breakpoints/clear")
+async def debug_clear_breakpoints(request: Request, _: str = Depends(require_user)) -> Dict[str, Any]:
+    return await get_bench(request).debug.clear_breakpoints()
+
+
+@router.post("/debug/watch")
+async def debug_add_watch(body: WatchBody, request: Request, _: str = Depends(require_user)) -> Dict[str, Any]:
+    return await get_bench(request).debug.add_watch(body.expr)
+
+
+@router.delete("/debug/watch")
+async def debug_remove_watch(request: Request, index: int, _: str = Depends(require_user)) -> Dict[str, Any]:
+    return await get_bench(request).debug.remove_watch(index)
+
+
+@router.post("/debug/set")
+async def debug_set(body: SetVarBody, request: Request, _: str = Depends(require_user)) -> Dict[str, Any]:
+    return await get_bench(request).debug.set_variable(body.name, body.value)
 
 
 # ------------------------------------------------------------------ monitor serie
@@ -322,7 +454,8 @@ async def events(request: Request, _: str = Depends(require_user)) -> StreamingR
             yield "retry: 3000\n\n"
             job = bench.runner.current
             yield _sse({"type": "snapshot", "job": job.to_public() if job else None,
-                        "gdb": bench.gdb.status(), "serial": bench.serial.status()})
+                        "gdb": bench.gdb.status(), "serial": bench.serial.status(),
+                        "debug": bench.debug.status()})
             for past in bench.bus.replay():
                 yield _sse(dict(past, replay=True))
             while True:

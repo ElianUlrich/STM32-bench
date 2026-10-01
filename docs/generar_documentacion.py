@@ -23,7 +23,7 @@ from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
-from reportlab.platypus import (KeepTogether, PageBreak, Paragraph, Preformatted,
+from reportlab.platypus import (Image, KeepTogether, PageBreak, Paragraph, Preformatted,
                                 SimpleDocTemplate, Spacer, Table, TableStyle)
 
 OUT = Path(__file__).resolve().parent / "Banco_STM32_Documentacion.pdf"
@@ -292,6 +292,36 @@ def diagrama_software() -> Drawing:
     return d
 
 
+def diagrama_depurador() -> Drawing:
+    """Diagrama 5: la pestaña Depurar (GDB manejado por la app en la placa)."""
+    d = Drawing(495, 190)
+    # PC
+    caja(d, 0, 92, 92, 70, ["Navegador", "pestaña Depurar", "código · variables", "pila · registros"],
+         borde=AZUL, fondo=AZUL_SUAVE, tam=8)
+    # Placa
+    caja(d, 108, 4, 300, 182, [], fondo=ACENTO_SUAVE, borde=ACENTO)
+    titulo_grupo(d, 258, 172, "BeagleBoard-xM", color=ACENTO_OSC, anchor="middle")
+    caja(d, 120, 100, 86, 56, ["App web", "DebugSession", "valida todo"], tam=8)
+    caja(d, 222, 100, 76, 56, ["arm-none-", "eabi-gdb 12", "(modo MI)"], tam=8)
+    caja(d, 314, 100, 82, 56, ["OpenOCD", "servidor GDB", ":3333"], tam=8)
+    caja(d, 120, 18, 276, 52, ["Lee del .elf (pyelftools): archivos fuente y líneas con código;",
+                               "busca los .c/.h en la carpeta del proyecto (.zip o Syncthing)"],
+         fondo=colors.white, borde=GRIS_BORDE, tam=7.6, negrita=False)
+    flecha(d, [(163, 100), (163, 70)], color=GRIS, trazo=[2, 2])
+    # STM32
+    caja(d, 424, 100, 71, 56, ["ST-Link", "+ STM32"], borde=ROJO, fondo=ROJO_SUAVE, tam=8)
+    flecha(d, [(92, 128), (120, 128)], color=AZUL, doble=True)
+    etiqueta(d, 100, 144, "HTTP", color=AZUL, tam=6.6)
+    etiqueta(d, 100, 112, "+ SSE", color=AZUL, tam=6.6)
+    flecha(d, [(206, 128), (222, 128)], doble=True)
+    etiqueta(d, 214, 162, "stdin/stdout", tam=6.4)
+    flecha(d, [(298, 128), (314, 128)], doble=True)
+    etiqueta(d, 306, 92, "TCP", tam=6.4)
+    flecha(d, [(396, 128), (424, 128)], color=ROJO, doble=True)
+    etiqueta(d, 410, 134, "USB", tam=6.4)
+    return d
+
+
 def diagrama_vinculo() -> Drawing:
     """Diagrama 4: cómo se evita grabar un binario en la placa equivocada."""
     d = Drawing(495, 330)
@@ -465,7 +495,8 @@ def contenido() -> list:
           Spacer(1, 6 * mm),
           P(f"Documento de trabajo — actualizado al {fecha}", "cuerpo"),
           P("Estado: la aplicación está instalada y funcionando en la BeagleBoard-xM, con acceso remoto por "
-            "Tailscale; el STM32H503 se flashea y se depura con GDB desde la PC, a través de la placa. Se agregó soporte para ESP32/ESP8266 y Arduino (AVR), con cada "
+            "Tailscale; el STM32H503 se flashea y se depura con GDB desde la PC, a través de la placa. Se sumó una "
+            "pestaña Depurar para depurar desde la misma web (probada en simulación; falta GDB 12 en la placa). Se agregó soporte para ESP32/ESP8266 y Arduino (AVR), con cada "
             "binario vinculado a su placa; está probado en simulación y falta probarlo con placas reales.", "cuerpo"),
           Spacer(1, 10 * mm),
           recuadro("<b>Resumen.</b> Una BeagleBoard-xM sin pantalla ni teclado, ubicada en un banco de laboratorio, "
@@ -696,6 +727,51 @@ openocd -s /usr/local/share/openocd/scripts
                    fondo=AMBAR_SUAVE, borde=AMBAR),
           Spacer(1, 8)]
 
+    s += [PageBreak(),
+          P("Depurar en la web (pestaña Depurar)", "h2"),
+          P("Con el servidor GDB ya se podía depurar desde la PC, pero hacía falta instalar GDB o un IDE y escribir "
+            "comandos. La pestaña Depurar hace lo mismo desde el navegador: la app corre GDB en la placa en "
+            "<b>modo MI</b> (la interfaz de GDB pensada para programas, la misma que usan VS Code y CubeIDE), lo "
+            "conecta al OpenOCD local y muestra el resultado (figura 5)."),
+          figura(diagrama_depurador(), "Figura 5 — Depuración en la web: la app maneja GDB en la placa."),
+          Spacer(1, 4),
+          figura(Image(str(Path(__file__).resolve().parent / "img" / "pestana_depurar.jpg"), width=170 * mm,
+                       height=170 * mm * 397 / 800),
+                 "Captura — pestaña Depurar (modo simulación): detenido en contador_paso() después de un "
+                 "breakpoint en la línea 19 y un paso. A la derecha, globales (en rojo las que cambiaron), una "
+                 "expresión vigilada, la pila de llamadas y los breakpoints."),
+          tabla([["Control", "Qué hace", "Comando MI"],
+                 ["Iniciar", "Grabar y parar en main / reiniciar y parar en main / conectarse donde esté. "
+                             "Verifica el ID del chip antes de grabar.", "-target-select, -target-download"],
+                 ["Continuar (F5) / Pausar (F6)", "Corre hasta un breakpoint / frena donde esté",
+                  "-exec-continue / -exec-interrupt"],
+                 ["Paso (F10) / Entrar (F11) / Salir (Shift+F11)", "Una línea sin entrar a funciones / entrando / "
+                  "hasta volver a quien llamó", "-exec-next / -exec-step / -exec-finish"],
+                 ["Clic en un número de línea", "Pone o saca un breakpoint (de hardware en la flash)",
+                  "-break-insert archivo:línea"],
+                 ["Clic en un valor", "Cambia una variable (sólo números, caracteres y true/false)",
+                  "-data-evaluate-expression var=valor"],
+                 ["Reset", "Reinicia el micro y queda detenido", "monitor reset halt"]],
+                [44, 76, 50]),
+          Spacer(1, 6),
+          *vinetas([
+              "<b>Fuentes</b>: el .elf guarda las rutas de la PC donde se compiló (C:/Users/.../src/placa.c). La "
+              "app lee la tabla de líneas DWARF con pyelftools y busca cada archivo en la carpeta del proyecto: "
+              "relativo a la carpeta del .elf y sus padres, o por nombre. Para eso se sube el proyecto en .zip "
+              "(se extraen sólo firmware y fuentes, con protección contra rutas maliciosas y bombas zip) o se "
+              "sincroniza con Syncthing.",
+              "<b>Seguridad</b>: el navegador nunca le manda texto a GDB. Pide “el archivo número N del .elf”, "
+              "“breakpoint en la línea L”, “paso”; la app arma el comando. Las expresiones a vigilar no pueden "
+              "usar variables de GDB ($...) salvo registros, porque algunas ejecutan cosas en la placa.",
+              "<b>Un solo cliente</b>: OpenOCD acepta una sola conexión GDB, así que mientras se depura en la web "
+              "no se puede conectar un GDB externo. Flashear desde Acciones termina la sesión.",
+              "<b>GDB 12</b>: el GDB de Ubuntu 16.04 (7.11) no entiende DWARF 5, el formato del GCC de CubeIDE. "
+              "scripts/build_gdb.sh compila GDB 12 sólo para ARM en la placa (varias horas, con swap temporal).",
+              "<b>Pruebas</b>: un simulador (scripts/mock_gdb.py) imita a GDB ejecutando el contador binario con "
+              "sus líneas reales; con él se probó la pestaña completa y los tests cubren sesiones enteras.",
+          ]),
+          Spacer(1, 8)]
+
     # ---- 5. Seguridad
     s += [P("5. Seguridad", "h1"),
           P("La aplicación puede ejecutar comandos en la placa, así que la seguridad se diseñó en capas:")]
@@ -763,7 +839,7 @@ openocd -s /usr/local/share/openocd/scripts
           bloque_codigo("powershell -ExecutionPolicy Bypass -File scripts\\dev_run.ps1   # http://127.0.0.1:8080"),
           Spacer(1, 6),
           P("Pruebas automáticas", "h2"),
-          P("198 tests con pytest, todos pasando (uno se omite en Windows). Cubren:")]
+          P("228 tests con pytest, todos pasando (uno se omite en Windows). Cubren:")]
     s += vinetas([
         "Validación de archivos: nombres, extensiones, tamaño, contenido (ELF ARM de 32 bits, Intel HEX), "
         "path traversal y symlinks.",
@@ -780,6 +856,8 @@ openocd -s /usr/local/share/openocd/scripts
         "ESP32 y Arduino: análisis de .bin (ID de chip, imagen combinada, offset del bootloader) y de .hex "
         "(tamaño, bootloader), comandos de esptool y avrdude, puertos inválidos, toque de 1200 baudios y "
         "liberación del monitor serie.",
+        "Depurador: protocolo GDB/MI, validación de expresiones, fuentes del .elf (DWARF 3 y 5, rutas de "
+        "Windows), proyectos .zip y sesiones completas con el GDB simulado.",
         "Vínculo binario ↔ placa: subida sin placa, placa incompatible, reasignación, grabación rechazada en "
         "otra placa, firma AVR distinta y chip STM32 equivocado (IDCODE).",
     ])
@@ -805,7 +883,7 @@ openocd -s /usr/local/share/openocd/scripts
 
     # ---- 8. Bitácora
     s += [P("8. Puesta en marcha de la BeagleBoard-xM (bitácora)", "h1"),
-          figura(diagrama_estado(), f"Figura 5 — Pasos de la puesta en marcha y su estado al {fecha}."),
+          figura(diagrama_estado(), f"Figura 6 — Pasos de la puesta en marcha y su estado al {fecha}."),
           P("8.1 Estado inicial encontrado", "h2"),
           tabla([["Elemento", "Encontrado"],
                  ["Sistema", "Ubuntu 16.04 LTS, imagen de consola de rcn-ee (Robert C. Nelson) del 23/01/2017."],
@@ -930,7 +1008,7 @@ sudo tailscale up --hostname=banco-stm32     # se autoriza abriendo el enlace en
             "el router le asigne siempre la misma IP."),
           PageBreak(),
           P("8.12 Primera conexión con el STM32H503 (diagnóstico)", "h2"),
-          figura(diagrama_conexion(), "Figura 6 — Cableado del banco: BeagleBoard-xM, ST-LINK/V2 (conector de "
+          figura(diagrama_conexion(), "Figura 7 — Cableado del banco: BeagleBoard-xM, ST-LINK/V2 (conector de "
                  "20 pines) y placa del STM32H503."),
           P("El programador es un <b>ST-LINK/V2 original</b> (firmware V2J46S7, compatible con el modo dapdirect "
             "que necesita el H5). Su número de serie es binario, como en todos los V2 viejos; la app lo convierte "
@@ -1041,6 +1119,11 @@ arm-none-eabi-gdb 03_contador_binario.elf
         "explícita al subir cubre ese hueco.",
         "<b>Dependencias en una placa vieja</b>: esptool trae cryptography, que no compila en armhf con "
         "OpenSSL 1.0.2; como sólo la usa espsecure, se instala con --no-deps.",
+        "<b>El formato de depuración también tiene versiones.</b> GCC 11+ genera DWARF 5 y un GDB de 2016 no "
+        "lo lee: antes de diseñar sobre una herramienta del sistema hay que verificar que entienda lo que "
+        "producen las herramientas de la PC.",
+        "<b>Un simulador fiel acelera todo.</b> Simular GDB con el programa real (mismas líneas y funciones) "
+        "permitió armar y probar la pestaña Depurar completa mientras GDB se compilaba en la placa.",
         "<b>Documentar mientras se trabaja</b> (este documento se genera desde un script y se actualiza en cada "
         "paso) evita reconstruir de memoria lo que pasó.",
     ])
@@ -1059,6 +1142,8 @@ arm-none-eabi-gdb 03_contador_binario.elf
                                         "lectura) para actualizar con git pull."],
                  ["USB DFU", "El H503 entra al bootloader pero la BeagleBoard no lo enumera: probar el mismo "
                              "cable USB-C en la PC (puede ser sólo de carga) y otro puerto de la xM."],
+                 ["Depurar en la web", "Terminar de compilar GDB 12 en la placa (build_gdb.sh, en curso), "
+                                       "instalar la versión nueva y depurar el contador binario desde la pestaña."],
                  ["ESP32 y Arduino", "Instalar la versión nueva en la placa y probar Identificar en el H503 "
                                      "(IDCODE real), un ESP32 y un Arduino Uno reales."],
                  ["microSD más grande", "Con 8 GB o más: partición de datos y sistema en solo lectura."]],
@@ -1070,6 +1155,8 @@ arm-none-eabi-gdb 03_contador_binario.elf
         "VS Code (Cortex-Debug) y STM32CubeIDE como clientes GDB (arm-none-eabi-gdb ya está probado).",
         "DFU real: dfu-util -l, :leave, verificación con -U y mass-erase sin -D.",
         "Monitor serie con un VCP; apagar y reiniciar desde la web.",
+        "Pestaña Depurar con GDB 12 y el OpenOCD real: load, breakpoints de hardware, pausar con mi-async, "
+        "registros y el tiempo de lectura de un proyecto grande con pyelftools en la xM.",
         "Dos ST-Link conectados a la vez (selección por número de serie).",
         "Identificar en STM32: el Tcl read_memory sobre DBGMCU_IDCODE con el OpenOCD de ST.",
         "esptool 4.12 sin cryptography en la xM; ESP32 y ESP32-S3/C3 (USB-JTAG nativo) reales.",
@@ -1087,6 +1174,8 @@ app/                 backend (FastAPI)
   chips.py           chips.yaml (28 placas) y verificación de .cfg
   compat.py          ¿este archivo es para esta placa? (ARM / ESP / AVR)
   firmware_meta.py   vínculo archivo -> placa
+  elfinfo.py         fuentes y líneas con código de un .elf (DWARF)
+  debugger/          pestaña Depurar: protocolo GDB/MI y sesión de GDB
   files.py           validación, subida, escaneo y borrado de firmware
   convert.py         .elf/.hex -> .bin para DFU
   probe.py           ST-Link por sysfs y dispositivos DFU
@@ -1099,12 +1188,12 @@ app/                 backend (FastAPI)
   history.py         historial (JSON Lines)
 web/                 interfaz (HTML, CSS, JS sin dependencias)
 config/              chips.yaml, bench.yaml, bench.example.env
-scripts/             build_openocd.sh, prepare_ubuntu1604.sh, install.sh, hash_password.py,
+scripts/             build_openocd.sh, build_gdb.sh, prepare_ubuntu1604.sh, install.sh, hash_password.py,
                      dev_run.ps1/.sh, simuladores de OpenOCD, dfu-util, esptool y avrdude
 deploy/              unidad systemd, reglas udev, plantilla de sudoers
 firmware/h503_leds/  firmware de prueba para STM32H503 (fuentes, Makefile, compilados)
 docs/                este documento y su generador
-tests/               198 tests (pytest)
+tests/               228 tests (pytest)
 """)]),
           KeepTogether([P("Anexo B. Comandos útiles", "h1"),
           bloque_codigo("""

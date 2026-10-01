@@ -216,6 +216,7 @@ else
     warn "El servicio no arrancó. Mirá: journalctl -u stm32-bench -n 50"
 fi
 [ -x /usr/local/bin/openocd ] || warn "No hay /usr/local/bin/openocd todavía: corré sudo scripts/build_openocd.sh"
+[ -x /usr/local/bin/arm-none-eabi-gdb ]     || warn "No hay /usr/local/bin/arm-none-eabi-gdb: la pestaña Depurar lo necesita (sudo bash scripts/build_gdb.sh)"
 TS_IP="$(ip -4 -o addr show tailscale0 2>/dev/null | awk '{print $4}' | cut -d/ -f1 || true)"
 if [ -n "$TS_IP" ]; then
     log "Abrí http://$TS_IP:$PORT desde tu PC (por Tailscale)."

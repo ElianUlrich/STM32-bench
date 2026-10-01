@@ -21,6 +21,9 @@ const state = {
   gdb: { state: "stopped", active: false },
   serial: { open: false },
   tab: "files",
+  // Depurador: estado de la sesión (llega por SSE) y fuentes del .elf que se muestran.
+  dbg: { status: { state: "off" }, sources: [], sourcesFor: null, texts: {}, current: null, lines: [],
+         marked: new Set(), missing: [], changed: new Set(), lastValues: {} },
 };
 
 // ---------------------------------------------------------------- utilidades
@@ -349,6 +352,7 @@ function updateActionButtons() {
     btn.disabled = !!reason;
     btn.title = reason;
   }
+  renderDebug();
 }
 
 // -------------------------------------------------------------- programadores
@@ -498,6 +502,7 @@ async function assignTarget(file, target) {
 
 function setFile(file) {
   state.file = file;
+  if (state.tab === "debug" && !dbgActive()) loadDebugSources();
   const box = $("fw-selected");
   if (file) {
     const chip = chipById(file.target);
@@ -572,7 +577,7 @@ async function uploadFiles(fileList) {
   let last = null;
   for (const file of fileList) {
     const ext = (file.name.match(/\.[^.]+$/) || [""])[0].toLowerCase();
-    if (!chip.extensions.includes(ext)) {
+    if (!chip.extensions.includes(ext) && ext !== ".zip") {
       toast(`${file.name}: ${chip.name} acepta ${chip.extensions.join(", ")}`, true);
       continue;
     }
@@ -582,7 +587,9 @@ async function uploadFiles(fileList) {
     }
     try {
       last = await uploadOne(file, project, target);
-      $("upload-status").textContent = `✔ ${file.name} subido para ${chip.name}`;
+      $("upload-status").textContent = last.folder
+        ? `✔ Proyecto ${file.name} → ${last.folder}: ${last.firmware.length} binario(s) y ${last.sources} fuente(s), para ${chip.name}`
+        : `✔ ${file.name} subido para ${chip.name}`;
       for (const w of last.warnings || []) toast(w, false);
     } catch (e) {
       $("upload-status").textContent = "";
@@ -689,6 +696,10 @@ function renderGdb() {
   const pill = $("pill-gdb");
   pill.querySelector(".dot").className = "dot" + ({ listening: " ok", starting: " busy", error: " err" }[g.state] || "");
   pill.querySelector("span").textContent = g.active ? `GDB ${g.connect || ""}` : (g.state === "error" ? "GDB con error" : "GDB detenido");
+  if (dbgActive()) {
+    pill.querySelector("span").textContent = "Depurando en la web";
+    if (g.client_connected) $("gdb-state").textContent = labels[g.state] + (g.chip_name ? ` — ${g.chip_name}` : "") + " · usado por la pestaña Depurar";
+  }
 }
 
 async function startGdb() {
@@ -712,6 +723,470 @@ async function stopGdb() {
   } catch (e) {
     toast(e.message, true);
   }
+}
+
+// --------------------------------------------------------------- depurador
+
+const DBG_LABELS = { off: "Sin sesión", starting: "Iniciando…", running: "Corriendo…", stopped: "Detenido", error: "Error" };
+const C_KEYWORDS = new Set(("auto break case char const continue default do double else enum extern float for goto if " +
+  "inline int long register restrict return short signed sizeof static struct switch typedef union unsigned void " +
+  "volatile while bool true false NULL uint8_t uint16_t uint32_t uint64_t int8_t int16_t int32_t int64_t size_t " +
+  "__attribute__ __IO __I __O").split(" "));
+
+function dbgStatus() { return state.dbg.status || { state: "off" }; }
+function dbgActive() { return !!dbgStatus().active; }
+
+// .elf que se muestra: el de la sesión activa o el elegido en Archivos.
+function dbgElf() {
+  const st = dbgStatus();
+  if (st.active && st.elf) return st.elf;
+  return state.file && state.file.kind === "elf" ? state.file.path : null;
+}
+
+function pendingFor(elf) { return elf ? prefs.get("dbgbp." + elf, []) : []; }
+function setPending(elf, list) { if (elf) prefs.set("dbgbp." + elf, list); }
+function currentSource() { return state.dbg.sources.find((s) => s.id === state.dbg.current) || null; }
+
+async function loadDebugSources(force) {
+  const elf = dbgElf();
+  if (!elf) {
+    state.dbg.sources = [];
+    state.dbg.sourcesFor = null;
+    state.dbg.current = null;
+    renderDebugSources();
+    return;
+  }
+  if (!force && state.dbg.sourcesFor === elf) return;
+  state.dbg.sourcesFor = elf;
+  state.dbg.texts = {};
+  state.dbg.current = null;
+  state.dbg.sourceError = null;
+  state.dbg.missing = [];
+  try {
+    const data = await api("GET", "/api/debug/sources?file=" + encodeURIComponent(elf));
+    if (state.dbg.sourcesFor !== elf) return;
+    state.dbg.sources = data.sources;
+    state.dbg.missing = data.missing || [];
+  } catch (e) {
+    state.dbg.sources = [];
+    state.dbg.sourceError = e.message;
+  }
+  renderDebugSources();
+  const frame = dbgStatus().frame;
+  const wanted = frame && frame.source_id != null ? frame.source_id : prefs.get("dbgsrc." + elf, null);
+  const first = state.dbg.sources.find((s) => s.id === wanted)
+    || state.dbg.sources.find((s) => /\.(c|cc|cpp|s)$/i.test(s.base)) || state.dbg.sources[0];
+  if (first) await showSource(first.id, frame && frame.source_id === first.id ? frame.line : null);
+}
+
+function renderDebugSources() {
+  const sel = $("sel-dbg-source");
+  sel.replaceChildren(...state.dbg.sources.map((s) => el("option", { value: s.id }, s.name)));
+  sel.hidden = !state.dbg.sources.length;
+  if (state.dbg.current != null) sel.value = state.dbg.current;
+  const empty = $("dbg-empty");
+  if (!state.dbg.sources.length) {
+    const code = $("dbg-code");
+    code.replaceChildren(empty);
+    $("dbg-source-path").textContent = "";
+    state.dbg.lines = [];
+    state.dbg.current = null;
+    if (!dbgElf()) empty.replaceChildren("Elegí un ", el("strong", {}, ".elf"), " en la pestaña Archivos (con su placa asignada).");
+    else if (state.dbg.sourceError) empty.replaceChildren(state.dbg.sourceError);
+    else empty.replaceChildren("No se encontraron los archivos fuente de este .elf. Subí el proyecto como ",
+      el("strong", {}, ".zip"), " (el .elf y la carpeta con los .c/.h) o sincronizalo con Syncthing.");
+  }
+  renderDebug();
+}
+
+function highlightLine(line, inComment) {
+  const nodes = [];
+  let plain = "";
+  const flush = () => { if (plain) { nodes.push(document.createTextNode(plain)); plain = ""; } };
+  const push = (cls, text) => { flush(); if (text) nodes.push(el("span", { class: cls }, text)); };
+  let i = 0;
+  if (inComment) {
+    const end = line.indexOf("*/");
+    if (end < 0) { push("tk-com", line); return [nodes, true]; }
+    push("tk-com", line.slice(0, end + 2));
+    i = end + 2;
+  }
+  while (i < line.length) {
+    const rest = line.slice(i);
+    let m;
+    if (rest.startsWith("//")) { push("tk-com", rest); return [nodes, false]; }
+    if (rest.startsWith("/*")) {
+      const end = rest.indexOf("*/", 2);
+      if (end < 0) { push("tk-com", rest); return [nodes, true]; }
+      push("tk-com", rest.slice(0, end + 2));
+      i += end + 2;
+      continue;
+    }
+    if ((m = rest.match(/^"(\\.|[^"\\])*"?/)) || (m = rest.match(/^'(\\.|[^'\\])*'?/))) {
+      push("tk-str", m[0]); i += m[0].length; continue;
+    }
+    if (!plain.trim() && !nodes.length && (m = rest.match(/^#\s*[A-Za-z_]+/))) {
+      push("tk-pp", m[0]); i += m[0].length; continue;
+    }
+    if ((m = rest.match(/^(0[xX][0-9A-Fa-f]+|0[bB][01]+|\d+(\.\d+)?)[uUlLfF]*\b/)) && !/\w/.test(line[i - 1] || "")) {
+      push("tk-num", m[0]); i += m[0].length; continue;
+    }
+    if ((m = rest.match(/^[A-Za-z_]\w*/))) {
+      if (C_KEYWORDS.has(m[0])) push("tk-kw", m[0]); else plain += m[0];
+      i += m[0].length;
+      continue;
+    }
+    plain += line[i];
+    i += 1;
+  }
+  flush();
+  return [nodes, false];
+}
+
+function buildCode(src, text) {
+  const code = $("dbg-code");
+  const withCode = new Set(src.lines);
+  const lines = text.replace(/\r\n?/g, "\n").split("\n");
+  if (lines.length && lines[lines.length - 1] === "") lines.pop();
+  const frag = document.createDocumentFragment();
+  const rows = [];
+  let inComment = false;
+  lines.forEach((text, idx) => {
+    const n = idx + 1;
+    const [nodes, still] = highlightLine(text.replace(/\t/g, "    "), inComment);
+    inComment = still;
+    const row = el("div", { class: "cl" + (withCode.has(n) ? " code" : ""), "data-line": n },
+      el("span", { class: "gut" }), el("span", { class: "ln" }, n), el("span", { class: "src" }, ...nodes));
+    rows.push(row);
+    frag.append(row);
+  });
+  code.replaceChildren(frag);
+  code.scrollTop = 0;
+  state.dbg.lines = rows;
+  state.dbg.marked = new Set();
+}
+
+async function showSource(id, scrollLine) {
+  const elf = state.dbg.sourcesFor;
+  const src = state.dbg.sources.find((s) => s.id === Number(id));
+  if (!src) return;
+  if (!(src.id in state.dbg.texts)) {
+    try {
+      const data = await api("GET", `/api/debug/source?file=${encodeURIComponent(elf)}&id=${src.id}`);
+      state.dbg.texts[src.id] = data.text;
+    } catch (e) {
+      toast(e.message, true);
+      return;
+    }
+  }
+  if (state.dbg.sourcesFor !== elf) return;
+  if (state.dbg.current !== src.id || !state.dbg.lines.length) {
+    state.dbg.current = src.id;
+    prefs.set("dbgsrc." + elf, src.id);
+    buildCode(src, state.dbg.texts[src.id]);
+    $("sel-dbg-source").value = src.id;
+    $("dbg-source-path").textContent = src.rel || src.name;
+  }
+  updateCodeMarks();
+  if (scrollLine) scrollToLine(scrollLine);
+}
+
+function scrollToLine(n) {
+  const row = state.dbg.lines[n - 1];
+  if (!row) return;
+  const code = $("dbg-code");
+  const top = row.offsetTop - code.offsetTop;
+  if (top < code.scrollTop + 20 || top > code.scrollTop + code.clientHeight - 40) {
+    code.scrollTop = Math.max(0, top - code.clientHeight / 3);
+  }
+}
+
+// Breakpoints que se ven en el código: los de la sesión o, sin sesión, los guardados para la próxima.
+function visibleBreakpoints() {
+  const st = dbgStatus();
+  if (st.active) return { list: st.breakpoints || [], pending: false };
+  return { list: pendingFor(dbgElf()), pending: true };
+}
+
+function updateCodeMarks() {
+  const rows = state.dbg.lines;
+  if (!rows || !rows.length) return;
+  for (const n of state.dbg.marked) {
+    const row = rows[n - 1];
+    if (row) row.classList.remove("bp", "pending", "cur");
+  }
+  state.dbg.marked = new Set();
+  const cur = state.dbg.current;
+  const { list, pending } = visibleBreakpoints();
+  for (const b of list) {
+    if (b.source_id !== cur || !rows[b.line - 1]) continue;
+    rows[b.line - 1].classList.add(pending ? "pending" : "bp");
+    state.dbg.marked.add(b.line);
+  }
+  const st = dbgStatus();
+  const f = st.frame;
+  if (st.active && st.state === "stopped" && f && f.source_id === cur && rows[f.line - 1]) {
+    rows[f.line - 1].classList.add("cur");
+    state.dbg.marked.add(f.line);
+  }
+}
+
+async function toggleBreakpoint(line) {
+  const src = currentSource();
+  if (!src) return;
+  if (!dbgActive()) {
+    const elf = dbgElf();
+    const list = pendingFor(elf);
+    const i = list.findIndex((b) => b.source_id === src.id && b.line === line);
+    if (i >= 0) list.splice(i, 1); else list.push({ source_id: src.id, line });
+    setPending(elf, list);
+    updateCodeMarks();
+    renderDebug();
+    return;
+  }
+  try {
+    applyDebugStatus(await api("POST", "/api/debug/breakpoint", { source_id: src.id, line }));
+  } catch (e) {
+    toast(e.message, true);
+  }
+}
+
+function canDebug() {
+  const chip = currentChip();
+  return !!(chip && chip.methods.includes("swd") && state.method === "swd");
+}
+
+async function startDebug() {
+  const chip = currentChip();
+  const file = state.file;
+  if (!file || file.kind !== "elf") { toast("Elegí un .elf en la pestaña Archivos", true); return; }
+  if (!canDebug()) { toast("La depuración es para STM32 por ST-Link (SWD)", true); return; }
+  const mode = $("sel-dbg-mode").value;
+  prefs.set("dbgmode", mode);
+  $("btn-dbg-start").disabled = true;
+  try {
+    const st = await api("POST", "/api/debug/start", {
+      chip: chip.id, file: file.path, mode,
+      interface: $("sel-interface").value || null,
+      probe_serial: $("sel-probe").value || null,
+    });
+    applyDebugStatus(st);
+    // Breakpoints marcados antes de iniciar.
+    const pend = pendingFor(file.path);
+    for (const b of pend) {
+      try { applyDebugStatus(await api("POST", "/api/debug/breakpoint", b)); }
+      catch (e) { toast(`Breakpoint en la línea ${b.line}: ${e.message}`, true); }
+    }
+  } catch (e) {
+    toast(e.message, true);
+  } finally {
+    renderDebug();
+  }
+}
+
+async function stopDebug() {
+  try { applyDebugStatus(await api("POST", "/api/debug/stop")); } catch (e) { toast(e.message, true); }
+}
+
+async function dbgControl(action) {
+  try { applyDebugStatus(await api("POST", "/api/debug/control", { action })); } catch (e) { toast(e.message, true); }
+}
+
+function valueMap(st) {
+  const m = {};
+  for (const v of st.locals || []) m["l:" + v.name] = v.value;
+  for (const v of st.globals || []) m["g:" + v.name] = v.value;
+  for (const v of st.watches || []) m["w:" + v.expr] = v.value;
+  return m;
+}
+
+function applyDebugStatus(st) {
+  const prev = dbgStatus();
+  // Al terminar la sesión, sus breakpoints quedan guardados para la próxima.
+  if (prev.active && !st.active && prev.elf && prev.breakpoints) {
+    setPending(prev.elf, prev.breakpoints.map((b) => ({ source_id: b.source_id, line: b.line })));
+  }
+  if (st.state === "stopped") {
+    state.dbg.changed = new Set();
+    const old = state.dbg.lastValues || {};
+    const now = valueMap(st);
+    if (prev.active) for (const [k, v] of Object.entries(now)) if (k in old && old[k] !== v) state.dbg.changed.add(k);
+    state.dbg.lastValues = now;
+  }
+  state.dbg.status = st;
+  const elf = dbgElf();
+  if (state.tab === "debug" && elf !== state.dbg.sourcesFor) {
+    loadDebugSources(true);
+  } else if (st.state === "stopped" && st.frame && st.frame.source_id != null && state.tab === "debug") {
+    showSource(st.frame.source_id, st.frame.line);
+  }
+  renderDebug();
+  renderGdb();
+}
+
+function editValue(td, name, value) {
+  if (td.querySelector("input")) return;
+  const input = el("input", { type: "text", value: value || "", spellcheck: "false", autocomplete: "off" });
+  td.replaceChildren(input);
+  input.focus();
+  input.select();
+  let done = false;
+  const finish = async (save) => {
+    if (done) return;
+    done = true;
+    const text = input.value.trim();
+    if (save && text && text !== value) {
+      try { applyDebugStatus(await api("POST", "/api/debug/set", { name, value: text })); return; }
+      catch (e) { toast(e.message, true); }
+    }
+    renderDebug();
+  };
+  input.addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter") { ev.preventDefault(); finish(true); }
+    if (ev.key === "Escape") { ev.preventDefault(); finish(false); }
+  });
+  input.addEventListener("blur", () => finish(false));
+}
+
+function varRows(items, prefix, editable) {
+  if (!items.length) return [el("tr", {}, el("td", { class: "empty", colspan: 2 }, "—"))];
+  const st = dbgStatus();
+  const canEdit = st.active && st.state === "stopped";
+  return items.map((v) => {
+    const isErr = v.value === undefined && v.error;
+    const changed = state.dbg.changed && state.dbg.changed.has(prefix + v.name);
+    const simple = v.value !== undefined && !/^[{[]/.test(v.value);
+    const td = el("td", {
+      class: "v" + (isErr ? " err" : "") + (changed ? " changed" : "") + (editable && canEdit && simple ? " editable" : ""),
+      title: editable && canEdit && simple ? "Clic para cambiar el valor" : (v.type || ""),
+    }, isErr ? v.error : (v.value !== undefined ? v.value : "—"));
+    if (editable && canEdit && simple) td.addEventListener("click", () => editValue(td, v.name, v.value));
+    return el("tr", {}, el("td", { class: "n", title: v.type || "" }, v.name), td);
+  });
+}
+
+function renderDebug() {
+  if (!state.dbg) return;
+  const st = dbgStatus();
+  const active = !!st.active;
+  const running = active && st.state === "running";
+  const stopped = active && st.state === "stopped";
+  const f = st.frame;
+
+  // Estado
+  const dot = $("dbg-state").querySelector(".dot");
+  dot.className = "dot" + ({ stopped: " ok", running: " busy", starting: " busy", error: " err" }[st.state] || "");
+  let label = DBG_LABELS[st.state] || st.state;
+  if (stopped && f) label = `Detenido en ${f.func}()` + (f.file ? ` · ${f.file}:${f.line}` : "") + (st.stop_reason ? ` (${st.stop_reason})` : "");
+  $("dbg-state").querySelector("span").textContent = label;
+  $("dbg-state").title = label;
+
+  // Botones
+  const elfOk = !!(state.file && state.file.kind === "elf");
+  $("btn-dbg-start").hidden = active;
+  $("btn-dbg-start").disabled = !elfOk || !canDebug() || !!state.job || st.state === "starting";
+  $("btn-dbg-stop").hidden = !(active || st.state === "error");
+  $("sel-dbg-mode").disabled = active;
+  for (const btn of document.querySelectorAll(".dbg-ctl")) {
+    const a = btn.dataset.dbg;
+    btn.disabled = !(a === "pause" ? running : (a === "reset" ? active && (stopped || running) : stopped));
+  }
+
+  // Nota
+  const note = $("dbg-note");
+  let text = "";
+  let isError = false;
+  if (st.message) { text = st.message; isError = st.state === "error"; }
+  else if (!active && !elfOk) text = "Elegí el .elf a depurar en la pestaña Archivos (con su placa asignada).";
+  else if (!active && !canDebug()) text = "La depuración es para STM32 por ST-Link (SWD): elegí esa placa y ese método.";
+  else if (!active) text = "Marcá breakpoints con un clic en el número de línea y tocá Iniciar depuración. "
+    + "“Grabar y parar en main” graba el .elf y frena al principio de main().";
+  else if (running) text = "El programa corre en el micro. Tocá Pausar (F6) para ver dónde está, o esperá un breakpoint.";
+  if (state.dbg.missing && state.dbg.missing.length && !text) {
+    text = `No se encontraron ${state.dbg.missing.length} archivos fuente (p. ej. ${state.dbg.missing[0]}): subí el proyecto en .zip con las fuentes.`;
+  }
+  note.hidden = !text;
+  note.textContent = text;
+  note.className = "note" + (isError ? " error" : "");
+
+  // Paneles
+  $("dbg-locals").replaceChildren(...varRows(st.locals || [], "l:", true));
+  $("dbg-globals").replaceChildren(...varRows(st.globals || [], "g:", true));
+  const watches = st.watches || [];
+  $("dbg-watches").replaceChildren(...watches.map((w, i) => {
+    const changed = state.dbg.changed && state.dbg.changed.has("w:" + w.expr);
+    const value = w.value !== undefined ? w.value : (w.error || "—");
+    return el("tr", {},
+      el("td", { class: "n" }, w.expr),
+      el("td", { class: "v" + (w.error ? " err" : "") + (changed ? " changed" : "") }, value),
+      el("td", { class: "x" }, el("button", { class: "icon-btn", type: "button", title: "Quitar",
+        onclick: () => api("DELETE", "/api/debug/watch?index=" + i).then(applyDebugStatus).catch((e) => toast(e.message, true)) }, "✕")));
+  }));
+  $("dbg-stack").replaceChildren(...(st.stack || []).map((fr) => el("li", {
+    class: fr.level === 0 ? "top" : "",
+    title: fr.addr || "",
+    onclick: () => { if (fr.source_id != null) showSource(fr.source_id, fr.line); },
+  }, el("span", {}, fr.func + "()"), el("small", {}, fr.file ? `${fr.file}:${fr.line}` : (fr.addr || "")))));
+  const { list, pending } = visibleBreakpoints();
+  $("dbg-bps").replaceChildren(...(list.length ? list.map((b) => {
+    const src = state.dbg.sources.find((s) => s.id === b.source_id);
+    const name = b.file || (src ? src.base : "?");
+    return el("li", { onclick: () => showSource(b.source_id, b.line), title: pending ? "Se aplica al iniciar la depuración" : "" },
+      el("span", {}, `${pending ? "○" : "●"} ${name}:${b.line}`),
+      el("span", {}, b.hits ? el("small", {}, `${b.hits}×  `) : null,
+        el("button", { class: "icon-btn", type: "button", title: "Sacar",
+          onclick: (ev) => { ev.stopPropagation(); removeBreakpoint(b); } }, "✕")));
+  }) : [el("li", { class: "muted" }, el("small", {}, "Clic en un número de línea para agregar"))]));
+  $("dbg-regs").replaceChildren(...(st.registers || []).map((r) => el("tr", {},
+    el("td", { class: "n" }, r.name), el("td", { class: "v" }, r.value))));
+  updateCodeMarks();
+}
+
+async function removeBreakpoint(b) {
+  if (!dbgActive()) {
+    const elf = dbgElf();
+    setPending(elf, pendingFor(elf).filter((x) => !(x.source_id === b.source_id && x.line === b.line)));
+    renderDebug();
+    return;
+  }
+  try { applyDebugStatus(await api("POST", "/api/debug/breakpoint", { source_id: b.source_id, line: b.line })); }
+  catch (e) { toast(e.message, true); }
+}
+
+async function clearBreakpoints() {
+  if (!dbgActive()) { setPending(dbgElf(), []); renderDebug(); return; }
+  try { applyDebugStatus(await api("POST", "/api/debug/breakpoints/clear")); } catch (e) { toast(e.message, true); }
+}
+
+function bindDebugUI() {
+  $("sel-dbg-mode").value = prefs.get("dbgmode", "load");
+  $("btn-dbg-start").addEventListener("click", startDebug);
+  $("btn-dbg-stop").addEventListener("click", stopDebug);
+  for (const btn of document.querySelectorAll(".dbg-ctl")) btn.addEventListener("click", () => dbgControl(btn.dataset.dbg));
+  $("sel-dbg-source").addEventListener("change", (ev) => showSource(Number(ev.target.value)));
+  $("btn-dbg-clear-bps").addEventListener("click", (ev) => { ev.preventDefault(); clearBreakpoints(); });
+  $("dbg-code").addEventListener("click", (ev) => {
+    const target = ev.target.closest(".gut, .ln");
+    const row = ev.target.closest(".cl");
+    if (target && row) toggleBreakpoint(Number(row.dataset.line));
+  });
+  $("dbg-watch-form").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const input = $("inp-watch");
+    if (!input.value.trim()) return;
+    try { applyDebugStatus(await api("POST", "/api/debug/watch", { expr: input.value })); input.value = ""; }
+    catch (e) { toast(e.message, true); }
+  });
+  // Atajos como en los IDE (sólo con la pestaña Depurar abierta y fuera de un campo de texto).
+  document.addEventListener("keydown", (ev) => {
+    if (state.tab !== "debug" || !dbgActive() || /^(INPUT|SELECT|TEXTAREA)$/.test(ev.target.tagName)) return;
+    const keys = { F5: "continue", F6: "pause", F10: "next", F11: ev.shiftKey ? "finish" : "step" };
+    const action = keys[ev.key];
+    if (!action) return;
+    ev.preventDefault();
+    const btn = document.querySelector(`.dbg-ctl[data-dbg="${action}"]`);
+    if (btn && !btn.disabled) dbgControl(action);
+  });
 }
 
 // --------------------------------------------------------------------- log
@@ -906,6 +1381,7 @@ function handleEvent(ev) {
       state.job = ev.job && ev.job.state === "running" ? ev.job : null;
       state.gdb = ev.gdb;
       state.serial = Object.assign(state.serial || {}, ev.serial);
+      if (ev.debug) applyDebugStatus(ev.debug);
       renderJob();
       renderGdb();
       renderSerialStatus();
@@ -940,6 +1416,9 @@ function handleEvent(ev) {
       break;
     case "files_changed":
       loadFiles();
+      break;
+    case "debug":
+      applyDebugStatus(ev.status);
       break;
   }
 }
@@ -980,6 +1459,8 @@ function showTab(name) {
   if (name === "system") loadSystem();
   if (name === "history") loadHistory();
   if (name === "serial") loadSerial();
+  document.querySelector(".col-right").classList.toggle("debugging", name === "debug");
+  if (name === "debug") loadDebugSources();
 }
 
 function bindUI() {
@@ -1065,6 +1546,7 @@ function bindUI() {
   }
   $("btn-poweroff").addEventListener("click", () => powerAction("poweroff"));
   $("btn-reboot").addEventListener("click", () => powerAction("reboot"));
+  bindDebugUI();
 }
 
 // ------------------------------------------------------------------ arranque

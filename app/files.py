@@ -14,13 +14,20 @@ from __future__ import annotations
 import os
 import re
 import secrets
-from dataclasses import dataclass
+import shutil
+import stat
+import zipfile
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import BinaryIO, Callable, Dict, List, Optional
 
 from .settings import UPLOADS_DIRNAME
 
 ALLOWED_EXTENSIONS = (".elf", ".hex", ".bin")
+# Lo que se extrae de un proyecto en .zip: firmware + fuentes (para la pestaña Depurar).
+SOURCE_EXTENSIONS = (".c", ".h", ".s", ".cpp", ".cc", ".cxx", ".hpp", ".hh", ".hxx", ".inc", ".ld")
+ZIP_MAX_FILES = 3000
+ZIP_MAX_TOTAL_BYTES = 128 * 1024 * 1024
 # Un componente de ruta: empieza con alfanumérico, luego letras, números,
 # espacio y . _ - + ( ). Máximo 128 caracteres.
 SAFE_COMPONENT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._+()-]{0,127}$")
@@ -200,6 +207,134 @@ def save_upload(projects_dir: Path, project: str, filename: str, stream: BinaryI
         raise
     rel = final.relative_to(projects_dir).as_posix()
     return SavedFile(rel_path=rel, size=size)
+
+
+def _receive(stream: BinaryIO, tmp: Path, max_bytes: int, chunk_size: int = 64 * 1024) -> int:
+    size = 0
+    with open(tmp, "wb") as out:
+        while True:
+            chunk = stream.read(chunk_size)
+            if not chunk:
+                break
+            size += len(chunk)
+            if size > max_bytes:
+                raise FileValidationError(
+                    f"El archivo supera el máximo permitido ({max_bytes // (1024 * 1024)} MB)")
+            out.write(chunk)
+    return size
+
+
+@dataclass
+class SavedProject:
+    folder: str                       # carpeta del proyecto, relativa al directorio de proyectos
+    firmware: List[str] = field(default_factory=list)
+    sources: int = 0
+    skipped: int = 0
+
+
+def _zip_entries(zf: zipfile.ZipFile, max_file_bytes: int):
+    """(partes de la ruta, ZipInfo) de los archivos útiles; sin el prefijo común."""
+    useful, skipped = [], 0
+    for info in zf.infolist():
+        if info.is_dir():
+            continue
+        mode = info.external_attr >> 16
+        if stat.S_ISLNK(mode):
+            skipped += 1
+            continue
+        parts = [p for p in info.filename.replace("\\", "/").split("/") if p]
+        ext = Path(parts[-1]).suffix.lower() if parts else ""
+        if (not parts or ext not in ALLOWED_EXTENSIONS + SOURCE_EXTENSIONS
+                or any(p in (".", "..") or not is_safe_component(p) for p in parts)):
+            skipped += 1          # carpetas ocultas (.settings), objetos .o, nombres raros...
+            continue
+        if info.file_size > max_file_bytes:
+            raise FileValidationError(f"'{info.filename}' es demasiado grande")
+        useful.append((parts, info))
+    if len(useful) > ZIP_MAX_FILES:
+        raise FileValidationError(f"El .zip tiene demasiados archivos (máx. {ZIP_MAX_FILES})")
+    if sum(i.file_size for _, i in useful) > ZIP_MAX_TOTAL_BYTES:
+        raise FileValidationError("El .zip descomprimido es demasiado grande")
+    # Si todo está dentro de una sola carpeta, esa carpeta es el proyecto.
+    top = {parts[0] for parts, _ in useful if len(parts) > 1}
+    common = top.pop() if len(top) == 1 and all(len(p) > 1 for p, _ in useful) else None
+    if common:
+        useful = [(parts[1:], info) for parts, info in useful]
+    return useful, skipped, common
+
+
+def save_project_zip(projects_dir: Path, project: str, filename: str, stream: BinaryIO, max_bytes: int,
+                     validator: Optional[Callable[[List[tuple]], None]] = None) -> SavedProject:
+    """Extrae un proyecto (.elf/.hex/.bin + fuentes .c/.h/.s) en _subidos/<proyecto>/<carpeta>/.
+
+    Protecciones: sólo extensiones de firmware y fuente, nombres de la lista
+    blanca, sin "..", rutas absolutas ni symlinks, y límites de cantidad y de
+    tamaño descomprimido (contra "bombas zip"). Si la carpeta ya existía, se reemplaza.
+    """
+    if not filename.lower().endswith(".zip") or "/" in filename or "\\" in filename:
+        raise FileValidationError("Se esperaba un archivo .zip")
+    project = validate_project_name(project)
+    target_dir = projects_dir / UPLOADS_DIRNAME / project
+    target_dir.mkdir(parents=True, exist_ok=True)
+    root_real = Path(os.path.realpath(projects_dir))
+    if not _is_within(Path(os.path.realpath(target_dir)), root_real):
+        raise FileValidationError("El directorio de destino sale del directorio de proyectos")
+
+    token = secrets.token_hex(8)
+    tmp_zip = target_dir / f".upload-{token}.part"
+    tmp_dir = target_dir / f".upload-{token}.d"
+    try:
+        _receive(stream, tmp_zip, max_bytes)
+        try:
+            zf = zipfile.ZipFile(tmp_zip)
+        except zipfile.BadZipFile:
+            raise FileValidationError("El .zip está dañado o no es un .zip")
+        with zf:
+            entries, skipped, common = _zip_entries(zf, max_bytes)
+            if not entries:
+                raise FileValidationError("El .zip no tiene archivos de firmware ni fuentes")
+            stem = common or Path(filename).stem
+            folder = stem if is_safe_component(stem) else "proyecto"
+            result = SavedProject(folder="", skipped=skipped)
+            firmware: List[Path] = []
+            written = 0
+            for parts, info in entries:
+                dest = tmp_dir.joinpath(*parts)
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                with zf.open(info) as src, open(dest, "wb") as out:
+                    while True:
+                        chunk = src.read(64 * 1024)
+                        if not chunk:
+                            break
+                        written += len(chunk)
+                        if written > ZIP_MAX_TOTAL_BYTES or out.tell() + len(chunk) > info.file_size:
+                            raise FileValidationError("El .zip no coincide con los tamaños que declara")
+                        out.write(chunk)
+                if dest.suffix.lower() in ALLOWED_EXTENSIONS:
+                    check_content(file_kind(dest), dest.read_bytes()[:64], dest.stat().st_size)
+                    ensure_tcl_safe(target_dir / folder / Path(*parts))
+                    firmware.append(dest)
+                else:
+                    result.sources += 1
+        if not firmware:
+            raise FileValidationError("El .zip no tiene ningún .elf, .hex ni .bin")
+        if validator is not None:            # recibe [(ruta relativa dentro del proyecto, archivo)]
+            validator([(f.relative_to(tmp_dir).as_posix(), f) for f in firmware])
+        final = target_dir / folder
+        if final.exists():
+            shutil.rmtree(final)
+        os.replace(tmp_dir, final)
+        result.folder = final.relative_to(projects_dir).as_posix()
+        result.firmware = sorted((final / f.relative_to(tmp_dir)).relative_to(projects_dir).as_posix()
+                                 for f in firmware)
+        return result
+    finally:
+        try:
+            tmp_zip.unlink()
+        except FileNotFoundError:
+            pass
+        if tmp_dir.exists():
+            shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 def delete_upload(projects_dir: Path, rel_path: str) -> None:

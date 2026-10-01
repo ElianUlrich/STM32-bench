@@ -27,6 +27,8 @@ from .bootcontrol import create_boot_control, wait_for_dfu
 from .chips import CfgCheck, Chip, check_cfg_files, load_chips
 from .compat import Compat, check_file_for_chip
 from .convert import ConversionError, convert_to_bin
+from .debugger.session import DebugError, DebugSession
+from .elfinfo import DebugInfo, DebugInfoError, load_debug_info
 from .events import EventBus
 from .files import FileValidationError, resolve_firmware
 from .firmware_meta import FirmwareMeta
@@ -101,6 +103,7 @@ class Bench:
             self.dfu_cmd: Tuple[str, ...] = tuple(settings.mock_command("mock_dfu_util.py"))
             self.esptool_cmd: Tuple[str, ...] = tuple(settings.mock_command("mock_esptool.py"))
             self.avrdude_cmd: Tuple[str, ...] = tuple(settings.mock_command("mock_avrdude.py"))
+            self.gdb_client_cmd: Tuple[str, ...] = tuple(settings.mock_command("mock_gdb.py"))
             self.env_extra = {"PYTHONUNBUFFERED": "1", mock_state.ENV_VAR: str(settings.state_dir)}
             self.scripts_dir: Optional[str] = None
         else:
@@ -110,6 +113,7 @@ class Bench:
             self.esptool_cmd = ((self.cfg.esptool_binary,) if self.cfg.esptool_binary
                                 else (sys.executable, "-m", "esptool"))
             self.avrdude_cmd = (self.cfg.avrdude_binary,)
+            self.gdb_client_cmd = (self.cfg.debugger_gdb_binary,)
             self.env_extra = {}
             scripts = self.cfg.openocd_scripts()
             self.scripts_dir = str(scripts) if scripts else None
@@ -119,6 +123,7 @@ class Bench:
         self.meta = FirmwareMeta(settings.state_dir / "firmware_meta.json")
         self.runner = JobRunner(self.bus, self.history, self.env_extra)
         self.gdb = GdbServer(self.bus, self.env_extra)
+        self.debug = DebugSession(self.bus, self.env_extra)
         self.serial = SerialManager(self.bus, self.cfg.serial_bauds, self.cfg.serial_default_baud, settings.mock)
         self.boot = create_boot_control(self.cfg.boot_control, self.serial, settings.mock, settings.state_dir)
         self.serial_command = "adapter serial"
@@ -305,7 +310,7 @@ class Bench:
                 raise GdbActiveError(
                     "El servidor GDB está usando el programador. Detenelo para continuar "
                     "(o, desde GDB, usá 'monitor reset halt' / 'monitor resume').")
-            await self.gdb.stop()
+            await self.stop_gdb()
 
         address = None
         if firmware is not None and firmware.suffix.lower() == ".bin":
@@ -628,6 +633,63 @@ class Bench:
         except GdbServerError as exc:
             raise RequestError(str(exc))
 
+    async def stop_gdb(self) -> Dict[str, Any]:
+        """Detiene el servidor GDB (y antes, la depuración de la web que lo usa)."""
+        await self.debug.stop()
+        return await self.gdb.stop()
+
+    # ------------------------------------------------------------- depurador web
+    def debug_elf(self, rel_path: str) -> Tuple[Path, DebugInfo]:
+        """Valida el .elf a depurar y lee sus fuentes (bloqueante)."""
+        try:
+            elf = resolve_firmware(self.settings.projects_dir, rel_path)
+        except FileValidationError as exc:
+            raise RequestError(str(exc))
+        if elf.suffix.lower() != ".elf":
+            raise RequestError("Para depurar hace falta el .elf (trae los símbolos y las líneas del código)")
+        try:
+            return elf, load_debug_info(self.settings.projects_dir, elf)
+        except DebugInfoError as exc:
+            raise RequestError(str(exc))
+
+    async def start_debug(self, chip_id: str, interface: Optional[str], probe_serial: Optional[str],
+                          rel_path: str, mode: str) -> Dict[str, Any]:
+        chip = self.chip(chip_id)
+        if chip.swd is None:
+            raise RequestError("La depuración en la web es sólo para STM32 por SWD (ST-Link)")
+        if self.runner.busy:
+            raise BusyError("Hay una operación en curso; esperá a que termine")
+        if self.debug.active:
+            raise RequestError("Ya hay una sesión de depuración: detenela primero")
+        elf, info = await asyncio.get_running_loop().run_in_executor(None, self.debug_elf, rel_path)
+        # El .elf tiene que estar asignado a esta placa y ser compatible (sobre todo si se graba).
+        self.check_binding(rel_path, elf, chip)
+        if self.gdb.active:
+            if self.gdb.info.get("chip") != chip.id:
+                raise RequestError(f"El servidor GDB está iniciado para {self.gdb.info.get('chip_name')}: "
+                                   "detenelo o elegí esa placa")
+            if self.gdb.client_connected:
+                raise RequestError("Hay un GDB externo conectado al servidor (OpenOCD acepta uno solo): "
+                                   "desconectalo (quit) y probá de nuevo")
+        else:
+            await self.start_gdb(chip_id, interface, probe_serial)
+        for _ in range(100):                     # hasta 10 s más si OpenOCD sigue arrancando
+            if self.gdb.state == "listening" or not self.gdb.active:
+                break
+            await asyncio.sleep(0.1)
+        if self.gdb.state != "listening":
+            raise RequestError(self.gdb.last_error or "El servidor GDB no arrancó")
+        host = self.gdb.info.get("bind_ip") or "127.0.0.1"
+        if host == "0.0.0.0":
+            host = "127.0.0.1"
+        argv = list(self.gdb_client_cmd) + ["--interpreter=mi2", "--nx", "--quiet"]
+        try:
+            return await self.debug.start(gdb_argv=argv, elf=elf, elf_rel=rel_path, debuginfo=info,
+                                          host=host, port=int(self.gdb.info.get("port", self.cfg.gdb_port)),
+                                          chip_name=chip.name, idcode=chip.swd.idcode, mode=mode)
+        except DebugError as exc:
+            raise RequestError(str(exc))
+
     # ------------------------------------------------------------------ estado
     def public_config(self) -> Dict[str, Any]:
         bc = self.cfg.boot_control
@@ -652,6 +714,7 @@ class Bench:
         }
 
     def shutdown(self) -> None:
+        self.debug.stop_sync()
         self.gdb.stop_sync()
         self.serial.close()
         self.runner.cancel()

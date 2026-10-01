@@ -130,6 +130,7 @@
       <div class="panel tabs-panel">
         <nav class="tabs" role="tablist">
           <button type="button" role="tab" data-tab="files" class="active">Archivos</button>
+          <button type="button" role="tab" data-tab="debug">Depurar</button>
           <button type="button" role="tab" data-tab="serial">Monitor serie</button>
           <button type="button" role="tab" data-tab="history">Historial</button>
           <button type="button" role="tab" data-tab="system">Sistema</button>
@@ -137,8 +138,8 @@
 
         <div class="tab" id="tab-files">
           <div id="dropzone" class="dropzone" tabindex="0">
-            <input type="file" id="file-input" accept=".elf,.hex,.bin" multiple hidden>
-            <div>Arrastrá <strong>.elf</strong>, <strong>.hex</strong> o <strong>.bin</strong> acá, o <button type="button" class="link" id="btn-pick">elegí archivos</button></div>
+            <input type="file" id="file-input" accept=".elf,.hex,.bin,.zip" multiple hidden>
+            <div>Arrastrá <strong>.elf</strong>, <strong>.hex</strong>, <strong>.bin</strong> o un proyecto <strong>.zip</strong> (con las fuentes, para depurar) acá, o <button type="button" class="link" id="btn-pick">elegí archivos</button></div>
             <label class="inline">Placa <select id="sel-upload-target" class="upload-target"></select></label>
             <label class="inline">Proyecto <input id="inp-project" type="text" value="general" spellcheck="false" autocomplete="off"></label>
             <small class="muted" id="upload-limit"></small>
@@ -150,6 +151,55 @@
           </div>
           <div id="files-list" class="files-list"></div>
           <small class="muted" id="projects-dir"></small>
+        </div>
+
+        <div class="tab" id="tab-debug" hidden>
+          <div class="dbg-bar">
+            <select id="sel-dbg-mode" title="Cómo empieza la sesión">
+              <option value="load">Grabar y parar en main</option>
+              <option value="reset">Reiniciar y parar en main</option>
+              <option value="attach">Conectarse sin reiniciar</option>
+            </select>
+            <button class="btn small primary" id="btn-dbg-start" type="button">Iniciar depuración</button>
+            <button class="btn small" id="btn-dbg-stop" type="button" hidden>Detener</button>
+            <span class="dbg-sep" aria-hidden="true"></span>
+            <button class="btn small dbg-ctl" data-dbg="continue" type="button" title="Continuar (F5)">▶ Continuar</button>
+            <button class="btn small dbg-ctl" data-dbg="pause" type="button" title="Pausar (F6)">⏸ Pausar</button>
+            <button class="btn small dbg-ctl" data-dbg="next" type="button" title="Paso: ejecuta la línea sin entrar a las funciones (F10)">↷ Paso</button>
+            <button class="btn small dbg-ctl" data-dbg="step" type="button" title="Entrar a la función de esta línea (F11)">↓ Entrar</button>
+            <button class="btn small dbg-ctl" data-dbg="finish" type="button" title="Terminar la función y volver a quien la llamó (Shift+F11)">↑ Salir</button>
+            <button class="btn small dbg-ctl" data-dbg="reset" type="button" title="Reiniciar el micro (queda detenido al principio)">⟲ Reset</button>
+            <span class="dbg-state" id="dbg-state"><i class="dot"></i><span>Sin sesión</span></span>
+          </div>
+          <div id="dbg-note" class="note" hidden></div>
+          <div class="dbg-main">
+            <div class="dbg-code-wrap">
+              <div class="dbg-code-head">
+                <select id="sel-dbg-source" title="Archivo fuente"></select>
+                <small class="muted" id="dbg-source-path"></small>
+              </div>
+              <div id="dbg-code" class="dbg-code" tabindex="0">
+                <div class="empty-state" id="dbg-empty">Elegí un <strong>.elf</strong> en la pestaña Archivos.</div>
+              </div>
+            </div>
+            <aside class="dbg-side">
+              <details open><summary>Variables locales</summary><table class="vars" id="dbg-locals"></table></details>
+              <details open><summary>Globales</summary><table class="vars" id="dbg-globals"></table></details>
+              <details open>
+                <summary>Vigilar</summary>
+                <form id="dbg-watch-form" class="watch-form">
+                  <input id="inp-watch" type="text" placeholder="expresión, p. ej. contador &amp; 0xFF" autocomplete="off" spellcheck="false">
+                </form>
+                <table class="vars" id="dbg-watches"></table>
+              </details>
+              <details open><summary>Pila de llamadas</summary><ol class="stack" id="dbg-stack"></ol></details>
+              <details open>
+                <summary>Breakpoints <button type="button" class="link small" id="btn-dbg-clear-bps">sacar todos</button></summary>
+                <ul class="bps" id="dbg-bps"></ul>
+              </details>
+              <details><summary>Registros</summary><table class="vars regs" id="dbg-regs"></table></details>
+            </aside>
+          </div>
         </div>
 
         <div class="tab" id="tab-serial" hidden>

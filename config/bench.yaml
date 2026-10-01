@@ -43,6 +43,13 @@ gdb:
   bind: tailscale
   tailscale_interface: tailscale0
 
+# Pestaña "Depurar": la app maneja GDB en la placa y lo conecta al servidor
+# GDB de arriba. Hace falta un GDB que lea DWARF 5 (GCC 11+): compilarlo con
+#     sudo bash scripts/build_gdb.sh
+# Con gdb-multiarch de Ubuntu 16.04 (7.11) solo funcionan .elf compilados con -gdwarf-4.
+debugger:
+  gdb_binary: /usr/local/bin/arm-none-eabi-gdb
+
 uploads:
   max_size_mb: 16
 

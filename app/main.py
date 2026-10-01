@@ -19,6 +19,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from . import sample_firmware
 from .api import router
 from .bench import Bench, GdbActiveError, RequestError
+from .debugger.session import DebugError
 from .files import FileValidationError
 from .programmers.runner import BusyError
 from .serial_monitor import SerialError
@@ -104,6 +105,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         bench.bus.attach_loop(loop)
         if settings.mock:
             sample_firmware.seed_projects(settings.projects_dir)
+            sample_firmware.seed_debug_project(settings.projects_dir)
             for rel, target in sample_firmware.DEMO_TARGETS.items():
                 if (settings.projects_dir / rel).is_file() and bench.meta.target_of(rel) is None:
                     bench.meta.assign(rel, target)
@@ -145,6 +147,10 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
 
     @app.exception_handler(FileValidationError)
     async def _file_error(_: Request, exc: FileValidationError):
+        return _error(400, str(exc))
+
+    @app.exception_handler(DebugError)
+    async def _debug_error(_: Request, exc: DebugError):
         return _error(400, str(exc))
 
     @app.exception_handler(SerialError)

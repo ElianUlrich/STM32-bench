@@ -114,7 +114,24 @@ DEMO_TARGETS = {
     "esp32s3-demo/s3-demo.bin": "esp32-s3",
     "arduino-blink/Blink.ino.hex": "arduino-uno",
     "arduino-leonardo/Teclado.ino.hex": "arduino-leonardo",
+    "h503-contador/build/03_contador_binario.elf": "stm32h503cb",
 }
+
+
+def seed_debug_project(projects_dir: Path) -> None:
+    """Copia el contador binario real (.elf + fuentes) para probar la pestaña Depurar."""
+    from .settings import REPO_ROOT
+    src = REPO_ROOT / "firmware" / "h503_leds"
+    dest = projects_dir / "h503-contador"
+    elf = src / "build" / "03_contador_binario.elf"
+    if dest.exists() or not elf.is_file():
+        return
+    (dest / "build").mkdir(parents=True)
+    (dest / "src").mkdir()
+    (dest / "build" / elf.name).write_bytes(elf.read_bytes())
+    for f in (src / "src").iterdir():
+        if f.suffix in (".c", ".h"):
+            (dest / "src" / f.name).write_bytes(f.read_bytes())
 
 
 def seed_projects(projects_dir: Path) -> None:
