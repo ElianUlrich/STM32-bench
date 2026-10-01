@@ -45,6 +45,9 @@ de programación y depuración remota de microcontroladores **STM32**, **ESP32/E
   ([firmware/h503_leds](firmware/h503_leds/)) en el H503, desde `arm-none-eabi-gdb` en la PC por
   Tailscale: halt, leer y escribir variables, continue, Ctrl+C, breakpoints, desconexión y reconexión.
   "Identificar" leyó el ID del chip por SWD.
+- 📘 Guías en PDF: [cómo funciona](docs/Guia_1_Como_funciona.pdf) y
+  [requisitos, instalación (placa y PC) y trabajo remoto desde PowerShell](docs/Guia_2_Instalacion_y_trabajo_remoto.pdf)
+  (se generan con `docs/generar_guias.py`).
 - 📄 Documentación completa, con diagramas de bloques y la bitácora de la puesta en marcha:
   [docs/Banco_STM32_Documentacion.pdf](docs/Banco_STM32_Documentacion.pdf) (se genera con
   `docs/generar_documentacion.py`).
@@ -184,8 +187,8 @@ GDB para depurar desde la PC); la pestaña *Depurar* avisa que falta el GDB.
 
 1. instala `python3-venv`, `dfu-util`, `python3-libgpiod`, etc.;
 2. crea el usuario `stm32bench` (grupos `plugdev`, `dialout`, `gpio`);
-3. copia la app a `/opt/stm32-bench` y crea el venv con las dependencias (en armv7 agrega
-   **piwheels** como índice extra para bajar wheels precompiladas; `USE_PIWHEELS=0` para desactivarlo);
+3. copia la app a `/opt/stm32-bench` y crea el venv con las dependencias, más esptool (sin
+   `cryptography`); con `USE_PIWHEELS=1` agrega piwheels como índice extra (sólo para Debian recientes);
 4. crea `/etc/stm32-bench` (config), `/var/lib/stm32-bench` (estado e historial) y
    `/srv/stm32-bench/proyectos`;
 5. **pregunta usuario y contraseña** de la web y genera `/etc/stm32-bench/bench.env` con el hash y
