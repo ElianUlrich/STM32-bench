@@ -119,6 +119,28 @@ La app puede ejecutar comandos en la placa, así que:
 
 ## Instalación en la BeagleBoard-xM
 
+### En un solo comando, desde la PC (recomendado)
+
+`desplegar.bat` (raíz del repo) arma un paquete con el código de tu PC (incluidos los cambios sin
+commit), lo copia a la placa por `scp`, entra por SSH y corre `scripts/instalar_todo.sh`, que hace
+todo solo. Necesita `ssh`/`scp` (cliente OpenSSH de Windows) y Git. En PowerShell, en la carpeta del repo:
+
+```powershell
+.\desplegar.bat -ConfigurarClave                 # una vez: clave SSH, después no pide la contraseña
+.\desplegar.bat -Completo -Placa 192.168.0.27    # placa recién instalada: todo (5-9 h, corre en tmux)
+.\desplegar.bat                                  # actualizar la app (2-5 min)
+.\desplegar.bat -ActualizarConfig                # ídem, y usa los chips.yaml / bench.yaml nuevos
+.\desplegar.bat -Simular                         # muestra lo que haría
+```
+
+`-Completo` agranda la partición, instala Tailscale (pide autorizarlo con un enlace), Python 3.9 en
+Ubuntu 16.04, OpenOCD, la app y GDB. Pide al principio la contraseña de sudo y la de la web, y después
+sigue solo en la sesión `instalar` de tmux (`tmux attach -t instalar` para mirarla). Todos los pasos son
+idempotentes: si algo falla, se corrige y se vuelve a correr. Más detalle en la
+[guía de instalación](docs/Guia_2_Instalacion_y_trabajo_remoto.pdf).
+
+### Paso a paso
+
 Resumen (los detalles de cada paso siguen abajo):
 
 ```bash
@@ -132,7 +154,7 @@ sudo bash scripts/install.sh
 Si clonás o copiás el repo desde Windows, asegurate de que los scripts tengan fin de línea **LF**
 (el `.gitattributes` del repo lo fuerza al clonar con git).
 
-### 0. Si la placa tiene la imagen vieja Ubuntu 16.04 (rcn-ee 2017)
+#### 0. Si la placa tiene la imagen vieja Ubuntu 16.04 (rcn-ee 2017)
 
 Esa imagen trae Python 3.5 y dfu-util 0.8, y su partición ocupa solo 1,6 GB aunque la microSD sea más
 grande. Antes de los pasos siguientes:
@@ -151,7 +173,7 @@ endurecimiento del servicio que no conoce; se ignoran sin problema. Con una micr
 alcanza justo (los scripts borran lo que compilan); para la partición de datos y el overlay de solo
 lectura conviene una de 8 GB o más.
 
-### 1. OpenOCD (fork de ST)
+#### 1. OpenOCD (fork de ST)
 
 El OpenOCD de Debian es demasiado viejo para H5/H7. `scripts/build_openocd.sh` compila e instala en
 `/usr/local` el fork oficial de ST (<https://github.com/STMicroelectronics/OpenOCD>, por defecto el tag
@@ -168,7 +190,7 @@ El OpenOCD de Debian es demasiado viejo para H5/H7. `scripts/build_openocd.sh` c
 (si se corta el SSH, volvés con `tmux attach -t openocd`). Es **idempotente**: si el commit pedido
 ya está instalado no recompila (`FORCE=1` para forzar; `OPENOCD_REF=<tag>` para otra versión).
 
-### 1b. GDB para la pestaña *Depurar* (opcional, tarda horas)
+#### 1b. GDB para la pestaña *Depurar* (opcional, tarda horas)
 
 La pestaña *Depurar* maneja GDB en la placa. El de Ubuntu 16.04 (`gdb-multiarch` 7.11) no lee el
 formato DWARF 5 que genera el GCC de STM32CubeIDE, así que se compila GDB 12 sólo para ARM:
@@ -181,7 +203,7 @@ sudo bash scripts/build_gdb.sh        # 3 a 6 horas en la xM; queda /usr/local/b
 Es idempotente y usa un swap temporal de 1 GB. Sin este paso funciona todo lo demás (y el servidor
 GDB para depurar desde la PC); la pestaña *Depurar* avisa que falta el GDB.
 
-### 2. La app
+#### 2. La app
 
 `sudo bash scripts/install.sh`:
 
@@ -725,7 +747,7 @@ app/
   history.py         historial (JSON Lines)
 web/                 index.html, app.js, style.css, login (sin build, sin dependencias JS)
 config/              chips.yaml, bench.yaml, bench.example.env
-scripts/             build_openocd.sh, build_gdb.sh, install.sh, hash_password.py, dev_run.*, simuladores
+scripts/             desplegar.ps1, instalar_todo.sh, build_openocd.sh, build_gdb.sh, install.sh, hash_password.py, dev_run.*, simuladores
 deploy/              systemd, udev, sudoers
 firmware/h503_leds/  firmware de prueba para STM32H503 (LEDs en PA0..PA7), fuentes y compilados
 docs/                documentación PDF y su generador

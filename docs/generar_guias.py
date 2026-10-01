@@ -350,7 +350,8 @@ def guia_2() -> list:
         "<b>dónde</b> se escriben: los que empiezan en la PC van en <b>PowerShell</b> (el prompt dice "
         + c("PS C:\\>") + "); los de la placa van en la <b>terminal de Linux</b>, a la que se entra por SSH "
         "(el prompt dice " + c("ubuntu@arm:~$") + "). Mezclarlos es el error más común.",
-        ["1. Requisitos de hardware", "2. Requisitos de software y cuentas", "3. Instalación en la BeagleBoard",
+        ["1. Requisitos de hardware", "2. Requisitos de software y cuentas",
+         "3. Instalación en un solo comando (recomendado)", "3b. Instalación en la BeagleBoard, paso a paso",
          "4. Instalación en la PC", "5. Trabajo remoto desde PowerShell", "6. Comandos útiles en la placa",
          "7. Actualizar a una versión nueva", "8. Problemas frecuentes"])
 
@@ -385,14 +386,42 @@ def guia_2() -> list:
                                                                                              "placa y copiar archivos"],
                  ["PC", "Tailscale para Windows", "llegar a la placa desde cualquier red"],
                  ["PC", "Un navegador (Edge, Chrome, Firefox)", "usar la aplicación"],
-                 ["PC", "Git para Windows (opcional)", "bajar el repositorio y armar el paquete de instalación"],
+                 ["PC", "Git para Windows", "bajar el repositorio; lo usa desplegar.bat para armar el paquete"],
                  ["PC", "STM32CubeIDE (opcional)", "compilar firmware; trae arm-none-eabi-gcc y -gdb"],
                  ["Cuentas", "Tailscale (gratis para uso personal) y GitHub (el repositorio es privado)", "red "
                                                                                                         "privada y código"]],
                 [20, 90, 60])]
 
     # 3
-    s += [P("3. Instalación en la BeagleBoard", "h1"),
+    s += [P("3. Instalación en un solo comando (recomendado)", "h1"),
+          P("El script " + c("desplegar.bat") + ", en la carpeta del repositorio, hace todo desde la PC: arma un "
+            "paquete con el código (incluidos los cambios sin commit), lo copia a la placa por la red, entra por "
+            "SSH y la configura sola con " + c("scripts/instalar_todo.sh") + ". Sólo hace falta que la placa tenga "
+            "Linux, red y SSH (pasos 3.1 de la sección siguiente), y Git en la PC."),
+          tabla([["Comando (PowerShell, en la carpeta del repositorio)", "Qué hace", "Tiempo"],
+                 [c(".\\desplegar.bat -ConfigurarClave"), "Una sola vez: crea una clave SSH y la instala en la placa, "
+                  "para no escribir la contraseña de SSH cada vez.", "1 min"],
+                 [c(".\\desplegar.bat -Completo -Placa 192.168.0.27"), "Placa recién instalada: agranda la partición, "
+                  "instala Tailscale, Python 3.9, OpenOCD, la aplicación y GDB. Corre en tmux.", "5-9 h"],
+                 [c(".\\desplegar.bat"), "Actualiza la aplicación con el código de la PC.", "2-5 min"],
+                 [c(".\\desplegar.bat -ActualizarConfig"), "Igual, y además reemplaza chips.yaml y bench.yaml por los "
+                  "nuevos (guarda los anteriores como .bak).", "2-5 min"],
+                 [c(".\\desplegar.bat -Simular"), "Muestra lo que haría, sin tocar nada.", "segundos"]],
+                [62, 88, 20]),
+          Spacer(1, 6),
+          *vinetas([
+              "Para la instalación completa usá la <b>IP de la red local</b> (" + c("-Placa 192.168.x.y") + "): "
+              "Tailscale todavía no está. Las siguientes veces alcanza con " + c(".\\desplegar.bat") + ", que usa "
+              "la IP de Tailscale (" + c(IP) + ").",
+              "Al principio pide la contraseña de sudo, el usuario y la contraseña de la web y la autorización de "
+              "Tailscale (un enlace para abrir en la PC). Después ya no hace falta estar: corre sola varias horas.",
+              "Corre dentro de tmux, en la sesión " + c("instalar") + ". Si se corta la conexión sigue sola; para "
+              "volver a mirarla: " + c(f"ssh ubuntu@{IP}") + " y " + c("tmux attach -t instalar") + ".",
+              "Todo es idempotente: si algo falla, se corrige y se vuelve a correr el mismo comando; lo que ya "
+              "estaba instalado no se recompila.",
+          ]),
+          P("3b. Instalación en la BeagleBoard, paso a paso", "h1"),
+          P("Lo mismo que hace " + c("desplegar.bat") + ", a mano, por si se quiere entender o hacer un paso solo."),
           recuadro("Los pasos 3.4 a 3.7 compilan programas en la placa y tardan mucho (de 1 a 6 horas cada "
                    "uno). Por eso se corren dentro de <b>tmux</b>: si se corta la conexión, la compilación sigue. "
                    "Todos los scripts se pueden volver a correr sin problema.", fondo=AMBAR_SUAVE, borde=AMBAR),
@@ -479,7 +508,7 @@ ping {IP}
           P("Si dice que no existe, instalalo desde Configuración → Aplicaciones → Características opcionales → "
             "Cliente OpenSSH, o en una PowerShell abierta como administrador:"),
           bloque_codigo("Add-WindowsCapability -Online -Name OpenSSH.Client~~~~0.0.1.0"),
-          P("4.3 Git y el repositorio (opcional)", "h2"),
+          P("4.3 Git y el repositorio", "h2"),
           P("Instalá Git para Windows (" + c("https://git-scm.com") + ") y bajá el repositorio:"),
           bloque_codigo(f"""
 cd $env:USERPROFILE\\Desktop
@@ -588,7 +617,12 @@ ssh -L 8080:localhost:8080 ubuntu@192.168.0.27
 
     # 7
     s += [P("7. Actualizar a una versión nueva", "h1"),
-          P("Cuando hay cambios en el repositorio. En PowerShell, en la carpeta del repositorio:"),
+          P("Lo más simple, en PowerShell, en la carpeta del repositorio:"),
+          bloque_codigo("""
+git pull
+.\\desplegar.bat
+"""),
+          P("A mano, sin el script. En PowerShell:"),
           bloque_codigo(f"""
 git pull
 git archive --format=tar.gz -o stm32-bench.tgz HEAD
