@@ -379,7 +379,7 @@ ESTADO_PASOS = [
     (["7 · install.sh", "servicio + udev"], "ok"),
     (["8 · Tailscale", "acceso remoto"], "ok"),
     (["9 · Conexión SWD", "con el H503"], "ok"),
-    (["10 · Flasheo y", "debug remoto"], "curso"),
+    (["10 · Flasheo y", "debug remoto"], "ok"),
 ]
 COLORES_ESTADO = {"ok": (ACENTO_SUAVE, ACENTO, "hecho"), "curso": (AMBAR_SUAVE, AMBAR, "en curso"),
                   "pendiente": (GRIS_FONDO, GRIS_BORDE, "pendiente")}
@@ -465,8 +465,7 @@ def contenido() -> list:
           Spacer(1, 6 * mm),
           P(f"Documento de trabajo — actualizado al {fecha}", "cuerpo"),
           P("Estado: la aplicación está instalada y funcionando en la BeagleBoard-xM, con acceso remoto por "
-            "Tailscale, y la conexión SWD con el STM32H503 está verificada. En curso: flasheo del firmware de "
-            "prueba y depuración remota con GDB. Se agregó soporte para ESP32/ESP8266 y Arduino (AVR), con cada "
+            "Tailscale; el STM32H503 se flashea y se depura con GDB desde la PC, a través de la placa. Se agregó soporte para ESP32/ESP8266 y Arduino (AVR), con cada "
             "binario vinculado a su placa; está probado en simulación y falta probarlo con placas reales.", "cuerpo"),
           Spacer(1, 10 * mm),
           recuadro("<b>Resumen.</b> Una BeagleBoard-xM sin pantalla ni teclado, ubicada en un banco de laboratorio, "
@@ -1002,7 +1001,20 @@ arm-none-eabi-gdb 03_contador_binario.elf
 (gdb) set var contador = 0xAA      # LEDs 10101010
 (gdb) break contador_paso
 (gdb) continue
-""")]
+"""),
+          Spacer(1, 4),
+          recuadro("<b>Probado el 30/09/2026.</b> Con el arm-none-eabi-gdb de STM32CubeIDE en la PC (Windows) y "
+                   "el servidor GDB iniciado desde la web, por Tailscale: al conectarse el núcleo quedó detenido en "
+                   "esperar_ms; print contador devolvió 5439 (los LEDs muestran los 8 bits bajos, 0x3F); "
+                   "set var contador cambió los LEDs; continue, Ctrl+C, un breakpoint en contador_paso, delete, "
+                   "quit (el programa sigue corriendo) y la reconexión funcionaron. El script "
+                   "firmware/h503_leds/depurar.bat lanza GDB ya conectado."),
+          Spacer(1, 4),
+          recuadro("<b>Dos tropiezos.</b> Abrir 100.99.235.81:3333 en el navegador no sirve: es el puerto de GDB, "
+                   "no una página. OpenOCD recibe el pedido HTTP como basura (“ignoring character”) y el navegador "
+                   "ocupa la única conexión GDB, así que las siguientes se rechazan. Y si el servidor está "
+                   "detenido, GDB responde “Connection timed out”: hay que tocar Iniciar en la web y esperar "
+                   "“Escuchando”.", fondo=AMBAR_SUAVE, borde=AMBAR)]
     s.append(PageBreak())
 
     # ---- 10. Lecciones aprendidas
@@ -1036,8 +1048,8 @@ arm-none-eabi-gdb 03_contador_binario.elf
     # ---- 11. Próximos pasos
     s += [P("11. Próximos pasos", "h1"),
           tabla([["Paso", "Detalle"],
-                 ["Flasheo y GDB (en curso)", "Flashear 01_blink_todos y 03_contador_binario desde la web; sesión "
-                                              "GDB remota; probar Halt, Run y Reset con 02_auto_fantastico."],
+                 ["Otros clientes GDB", "Probar VS Code (Cortex-Debug) y STM32CubeIDE contra el servidor GDB "
+                                        "del banco; Halt, Run y Reset desde la web con 02_auto_fantastico."],
                  ["Alimentación", "Confirmar que la fuente de la xM sea de 5 V y al menos 2,5 A; si el SWD vuelve "
                                   "a fallar, usar un hub USB con fuente propia para el ST-Link."],
                  ["Script del H5", "Usar el stm32h5x.cfg de CubeIDE para eliminar el error de examine-end "
@@ -1055,7 +1067,7 @@ arm-none-eabi-gdb 03_contador_binario.elf
           P("Verificaciones pendientes en hardware", "h2")]
     s += vinetas([
         "Flashear, verificar, borrar, halt y run en el STM32H503 y, más adelante, en el STM32H723.",
-        "Servidor GDB en la IP de tailscale0; conexión desde arm-none-eabi-gdb y VS Code (Cortex-Debug).",
+        "VS Code (Cortex-Debug) y STM32CubeIDE como clientes GDB (arm-none-eabi-gdb ya está probado).",
         "DFU real: dfu-util -l, :leave, verificación con -U y mass-erase sin -D.",
         "Monitor serie con un VCP; apagar y reiniciar desde la web.",
         "Dos ST-Link conectados a la vez (selección por número de serie).",

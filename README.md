@@ -36,8 +36,10 @@ de programación y depuración remota de microcontroladores **STM32**, **ESP32/E
   hardware real.
 - ⏳ USB DFU del H503: el chip entra al bootloader pero la BeagleBoard no lo enumera (sospecha: cable
   USB-C solo de carga o el puerto).
-- ⏳ En curso: flasheo del firmware de prueba ([firmware/h503_leds](firmware/h503_leds/)) y depuración
-  remota con GDB.
+- ✔ **Depuración remota con GDB probada** (30/09/2026): con el contador binario
+  ([firmware/h503_leds](firmware/h503_leds/)) en el H503, desde `arm-none-eabi-gdb` en la PC por
+  Tailscale: halt, leer y escribir variables, continue, Ctrl+C, breakpoints, desconexión y reconexión.
+  "Identificar" leyó el ID del chip por SWD.
 - 📄 Documentación completa, con diagramas de bloques y la bitácora de la puesta en marcha:
   [docs/Banco_STM32_Documentacion.pdf](docs/Banco_STM32_Documentacion.pdf) (se genera con
   `docs/generar_documentacion.py`).
@@ -452,6 +454,16 @@ $ arm-none-eabi-gdb build/Debug/firmware.elf
 Con el servidor activo, los botones Reset/Halt/Run de la web se reemplazan por `monitor reset halt`,
 `monitor halt` y `monitor resume` desde GDB.
 
+En Windows, `arm-none-eabi-gdb.exe` viene con STM32CubeIDE (en
+`C:\ST\STM32CubeIDE_x\STM32CubeIDE\plugins\...gnu-tools-for-stm32...\tools\bin\`).
+[firmware/h503_leds/depurar.bat](firmware/h503_leds/depurar.bat) lo lanza ya conectado al banco.
+
+- **No abras `IP:3333` en el navegador**: no es una página web. OpenOCD recibe texto HTTP
+  (`ignoring character 0x..`) y el navegador ocupa la **única** conexión GDB permitida; las
+  siguientes se rechazan (`rejected 'gdb' connection, no more connections allowed`).
+- Por Tailscale conviene `set remotetimeout 10` para evitar el aviso de `keep_alive`.
+- Al conectarse, GDB detiene el núcleo; al salir con `quit` se desconecta y el programa sigue.
+
 ### VS Code (Cortex-Debug, `servertype: "external"`)
 
 `.vscode/launch.json`:
@@ -676,8 +688,8 @@ Verificalo en la BeagleBoard:
    `verify_image` con el núcleo detenido y que halt/run por separado se comporten como se espera.
 5. Selección por `adapter serial` con dos ST-Link conectados, y la conversión a hex de la serie de un
    ST-Link/V2 viejo (que coincida con la que espera OpenOCD).
-6. Servidor GDB escuchando en la IP de `tailscale0`, conexión desde `arm-none-eabi-gdb` y VS Code,
-   y la detección de "cliente conectado".
+6. ~~Servidor GDB y `arm-none-eabi-gdb` por Tailscale~~ ✔ probado con el H503. Falta VS Code
+   (Cortex-Debug) y STM32CubeIDE como cliente.
 7. DFU real: parseo de `dfu-util -l` de tu versión, `:leave`, lectura `-U` para verificar y
    `:mass-erase:force` **sin** `-D` (depende de la versión de dfu-util: en algunas hace falta un
    archivo). H503 y H723 en DFU (condiciones de AN2606).
