@@ -4,7 +4,8 @@ from __future__ import annotations
 import asyncio
 import threading
 import time
-from typing import Any, Dict, List, Optional
+from dataclasses import dataclass
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
 from ..events import EventBus
 from ..procs import StreamingProcess
@@ -12,6 +13,19 @@ from ..procs import StreamingProcess
 
 class GdbServerError(RuntimeError):
     pass
+
+
+class GdbServerBusy(GdbServerError):
+    """El OpenOCD actual no sirve y no se puede reiniciar: alguien lo está usando."""
+
+
+@dataclass(frozen=True)
+class ServerTarget:
+    """Lo que necesita quien pide el OpenOCD compartido (servidor GDB, Depurar o RTT)."""
+    chip: str
+    probe_serial: Optional[str]
+    rtt_address: Optional[str] = None     # "0x20000430"; None = no hace falta RTT
+    rtt_port: Optional[int] = None
 
 
 class GdbServer:
@@ -45,6 +59,54 @@ class GdbServer:
             return False
         mine = self.info.get("probe_serial")
         return mine is None or serial is None or mine == serial
+
+    def serves(self, want: ServerTarget) -> bool:
+        """¿El OpenOCD que está corriendo sirve para este pedido?"""
+        if not self.active or self.info.get("chip") != want.chip:
+            return False
+        if want.probe_serial and self.info.get("probe_serial") not in (None, want.probe_serial):
+            return False
+        if want.rtt_address is None:
+            return True                       # no pide RTT: sirve con o sin RTT
+        rtt = self.info.get("rtt") or {}
+        return rtt.get("address") == want.rtt_address and rtt.get("port") == want.rtt_port
+
+    async def ensure(self, want: ServerTarget, start: Callable[[], Awaitable[Any]], *,
+                     used_by_debugger: bool, wait_s: float = 10.0) -> Dict[str, Any]:
+        """Deja corriendo un OpenOCD que sirva para `want`.
+
+        Reutiliza el actual si sirve. Si no, lo reinicia con `start`, salvo que
+        alguien lo esté usando: reiniciarlo le cortaría la sesión a la pestaña
+        Depurar o a un GDB externo (OpenOCD acepta un solo cliente GDB).
+        Con RTT pedido pero sin encontrar el bloque, y sin nadie conectado, se
+        reinicia para volver a buscarlo (el programa pudo haber arrancado después).
+        """
+        nobody_using = not used_by_debugger and not self.client_connected
+        retry_rtt = bool(want.rtt_address) and self.rtt_state == "no_encontrado" and nobody_using
+        if not (self.serves(want) and not retry_rtt):
+            if self.active:
+                if used_by_debugger:
+                    raise GdbServerBusy("La depuración de la web está usando OpenOCD con otro chip o programa: "
+                                        "detenela primero")
+                if self.client_connected:
+                    raise GdbServerBusy("Hay un GDB externo conectado al servidor y reiniciar OpenOCD le "
+                                        "cortaría la sesión: desconectalo (quit) y probá de nuevo")
+                await self.stop()
+            await start()
+        deadline = time.monotonic() + wait_s       # OpenOCD puede seguir arrancando
+        while self.state != "listening" and self.active and time.monotonic() < deadline:
+            await asyncio.sleep(0.1)
+        if self.state != "listening":
+            raise GdbServerError(self.last_error or "OpenOCD no arrancó")
+        return self.status()
+
+    def local_endpoint(self) -> Tuple[str, int, Optional[int]]:
+        """(IP, puerto GDB, puerto RTT) para conectarse desde la propia placa."""
+        host = self.info.get("bind_ip") or "127.0.0.1"
+        if host == "0.0.0.0":
+            host = "127.0.0.1"
+        rtt = self.info.get("rtt") or {}
+        return host, int(self.info.get("port", 3333)), rtt.get("port")
 
     def _on_line(self, line: str) -> None:
         self.bus.publish({"type": "log", "source": "gdb", "level": "out", "line": line})

@@ -31,6 +31,28 @@ def out(line, delay=0.05):
     time.sleep(delay)
 
 
+def gdb_server(host, port):
+    """Puerto GDB simulado: acepta una conexión (como OpenOCD) y avisa al conectar y desconectar.
+    No habla el protocolo de GDB: alcanza para que la app vea "cliente conectado"."""
+    srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        srv.bind((host, port))
+    except OSError:
+        return                               # puerto ocupado (otro simulador): sin clientes simulados
+    srv.listen(1)
+    while True:
+        conn, _ = srv.accept()
+        out(f"Info : accepting 'gdb' connection on tcp/{port}", 0)
+        try:
+            while conn.recv(1024):
+                pass
+        except OSError:
+            pass
+        conn.close()
+        out("Info : dropped 'gdb' connection", 0)
+
+
 def rtt_server(host, port):
     """Canal RTT simulado: el programa 05_contador_rtt (cuenta cada 250 ms y acepta comandos)."""
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -114,6 +136,8 @@ def main(argv):
     if any(c.startswith("gdb_port") for c in cmds):
         port = next(c.split()[-1] for c in cmds if c.startswith("gdb_port"))
         out(f"Info : starting gdb server for {cpu} on {port}")
+        bind = next((c.split()[1] for c in cmds if c.startswith("bindto ")), "127.0.0.1")
+        threading.Thread(target=gdb_server, args=(bind, int(port)), daemon=True).start()
         out(f"Info : Listening on port {port} for gdb connections")
         setup = next((c for c in cmds if c.startswith("rtt setup ")), None)
         server = next((c for c in cmds if c.startswith("rtt server start ")), None)
@@ -122,7 +146,6 @@ def main(argv):
             out(f"Info : rtt: Control block found at {setup.split()[2].lower()}")
         if server:
             rtt_port = int(server.split()[3])
-            bind = next((c.split()[1] for c in cmds if c.startswith("bindto ")), "127.0.0.1")
             threading.Thread(target=rtt_server, args=(bind, rtt_port), daemon=True).start()
             out(f"Info : Listening on port {rtt_port} for rtt connections")
         try:

@@ -36,7 +36,7 @@ from .firmware_meta import FirmwareMeta
 from .history import History
 from .procs import run_capture
 from .programmers import avrdude as avr_cmd, base, dfu as dfu_cmd, esptool as esp_cmd, openocd as ocd_cmd
-from .programmers.gdbserver import GdbServer, GdbServerError
+from .programmers.gdbserver import GdbServer, GdbServerBusy, GdbServerError, ServerTarget
 from .programmers.runner import BusyError, Job, JobContext, JobFailed, JobRunner, new_job
 from .serial_monitor import SerialError, SerialManager
 from .settings import BenchConfig, ConfigError, InterfaceConfig, Settings, load_bench_config
@@ -685,34 +685,34 @@ class Bench:
             raise BusyError("Hay una operación en curso; esperá a que termine")
         if self.debug.active:
             raise RequestError("Ya hay una sesión de depuración: detenela primero")
-        elf, info = await asyncio.get_running_loop().run_in_executor(None, self.debug_elf, rel_path)
+        loop = asyncio.get_running_loop()
+        elf, info = await loop.run_in_executor(None, self.debug_elf, rel_path)
         # El .elf tiene que estar asignado a esta placa y ser compatible (sobre todo si se graba).
         self.check_binding(rel_path, elf, chip)
-        if self.gdb.active:
-            if self.gdb.info.get("chip") != chip.id:
-                raise RequestError(f"El servidor GDB está iniciado para {self.gdb.info.get('chip_name')}: "
-                                   "detenelo o elegí esa placa")
-            if self.gdb.client_connected:
-                raise RequestError("Hay un GDB externo conectado al servidor (OpenOCD acepta uno solo): "
-                                   "desconectalo (quit) y probá de nuevo")
-        else:
-            rtt = await asyncio.get_running_loop().run_in_executor(None, self.rtt_config, rel_path)
-            await self.start_gdb(chip_id, interface, probe_serial, rtt=rtt)
-        for _ in range(100):                     # hasta 10 s más si OpenOCD sigue arrancando
-            if self.gdb.state == "listening" or not self.gdb.active:
-                break
-            await asyncio.sleep(0.1)
-        if self.gdb.state != "listening":
-            raise RequestError(self.gdb.last_error or "El servidor GDB no arrancó")
-        host = self.gdb.info.get("bind_ip") or "127.0.0.1"
-        if host == "0.0.0.0":
-            host = "127.0.0.1"
+        rtt = await loop.run_in_executor(None, self.rtt_config, rel_path)
+        await self.ensure_server(chip, interface, probe_serial, rtt)
+        host, port, _ = self.gdb.local_endpoint()
         argv = list(self.gdb_client_cmd) + ["--interpreter=mi2", "--nx", "--quiet"]
         try:
             return await self.debug.start(gdb_argv=argv, elf=elf, elf_rel=rel_path, debuginfo=info,
-                                          host=host, port=int(self.gdb.info.get("port", self.cfg.gdb_port)),
+                                          host=host, port=port,
                                           chip_name=chip.name, idcode=chip.swd.idcode, mode=mode)
         except DebugError as exc:
+            raise RequestError(str(exc))
+
+    async def ensure_server(self, chip: Chip, interface: Optional[str], probe_serial: Optional[str],
+                            rtt: Optional[ocd_cmd.RttConfig]) -> Dict[str, Any]:
+        """El OpenOCD compartido (servidor GDB, Depurar y RTT) listo para este chip, ST-Link y RTT.
+        Lo reutiliza si sirve; si no, lo reinicia, salvo que alguien lo esté usando (409)."""
+        want = ServerTarget(chip=chip.id, probe_serial=self.resolve_probe_serial(probe_serial),
+                            rtt_address=f"0x{rtt.address:08X}" if rtt else None,
+                            rtt_port=rtt.port if rtt else None)
+        try:
+            return await self.gdb.ensure(want, lambda: self.start_gdb(chip.id, interface, probe_serial, rtt=rtt),
+                                         used_by_debugger=self.debug.active)
+        except GdbServerBusy as exc:
+            raise BusyError(str(exc))
+        except GdbServerError as exc:
             raise RequestError(str(exc))
 
     # ---------------------------------------------------------------------- RTT
@@ -729,30 +729,11 @@ class Bench:
         if rtt is None:
             raise RequestError("Este archivo no usa RTT: hace falta el .elf de un programa con RTT (el símbolo "
                                "_SEGGER_RTT, de SEGGER RTT o de firmware/h503_leds/src/rtt.c).")
-        current = self.gdb.info.get("rtt") if self.gdb.active else None
-        same = bool(current and current.get("address") == f"0x{rtt.address:08X}"
-                    and current.get("port") == rtt.port and self.gdb.info.get("chip") == chip.id)
-        if self.gdb.active and not (same and self.gdb.rtt_state == "encontrado"):
-            if self.debug.active:
-                if not same:
-                    raise RequestError("El servidor GDB de la depuración no tiene RTT para este programa: "
-                                       "detené la depuración y abrí RTT de nuevo")
-            else:
-                await self.gdb.stop()            # se reinicia con RTT (no resetea el micro)
-        if not self.gdb.active:
-            await self.start_gdb(chip_id, interface, probe_serial, rtt=rtt)
-        for _ in range(100):
-            if self.gdb.state == "listening" or not self.gdb.active:
-                break
-            await asyncio.sleep(0.1)
-        if self.gdb.state != "listening":
-            raise RequestError(self.gdb.last_error or "OpenOCD no arrancó")
-        host = self.gdb.info.get("bind_ip") or "127.0.0.1"
-        if host == "0.0.0.0":
-            host = "127.0.0.1"
+        await self.ensure_server(chip, interface, probe_serial, rtt)
+        host, _, rtt_port = self.gdb.local_endpoint()
         try:
             await loop.run_in_executor(None, self.serial.open_custom, RTT_PORT_NAME,
-                                       lambda: RttPort(host, rtt.port), "RTT por el ST-Link")
+                                       lambda: RttPort(host, rtt_port), "RTT por el ST-Link")
         except SerialError as exc:
             raise RequestError(str(exc))
         if self.gdb.rtt_state == "no_encontrado":
