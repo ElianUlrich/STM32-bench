@@ -247,6 +247,14 @@
                 <svg class="ic" aria-hidden="true"><use href="#i-step-over"/></svg>Paso</button>
               <button class="btn small dbg-ctl" data-dbg="step" type="button" title="Entrar a la función de esta línea (F11)">
                 <svg class="ic" aria-hidden="true"><use href="#i-step-into"/></svg>Entrar</button>
+              <select id="sel-dbg-count" class="dbg-count" title="Cuántas veces repetir Paso y Entrar"
+                      aria-label="Repetir Paso y Entrar">
+                <option value="1">×1</option>
+                <option value="5">×5</option>
+                <option value="10">×10</option>
+                <option value="50">×50</option>
+                <option value="100">×100</option>
+              </select>
               <button class="btn small dbg-ctl" data-dbg="finish" type="button" title="Terminar la función y volver a quien la llamó (Shift+F11)">
                 <svg class="ic" aria-hidden="true"><use href="#i-step-out"/></svg>Salir</button>
               <button class="btn small dbg-ctl" data-dbg="reset" type="button" title="Reiniciar el micro (queda detenido al principio)">

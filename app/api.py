@@ -284,6 +284,7 @@ class DebugStartBody(BaseModel):
 
 class DebugControlBody(BaseModel):
     action: str
+    count: int = 1          # Paso / Entrar repetidos (×5, ×10, ×50, ×100)
 
 
 class BreakpointBody(BaseModel):
@@ -342,7 +343,7 @@ async def debug_stop(request: Request, _: str = Depends(require_user)) -> Dict[s
 
 @router.post("/debug/control")
 async def debug_control(body: DebugControlBody, request: Request, _: str = Depends(require_user)) -> Dict[str, Any]:
-    return await get_bench(request).debug.control(body.action)
+    return await get_bench(request).debug.control(body.action, body.count)
 
 
 @router.post("/debug/breakpoint")

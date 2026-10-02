@@ -1033,7 +1033,9 @@ async function stopDebug() {
 }
 
 async function dbgControl(action) {
-  try { applyDebugStatus(await api("POST", "/api/debug/control", { action })); } catch (e) { toast(e.message, true); }
+  // Paso y Entrar se repiten la cantidad elegida (×1, ×5, ×10, ×50, ×100).
+  const count = (action === "next" || action === "step") ? parseInt($("sel-dbg-count").value, 10) || 1 : 1;
+  try { applyDebugStatus(await api("POST", "/api/debug/control", { action, count })); } catch (e) { toast(e.message, true); }
 }
 
 function valueMap(st) {
@@ -1113,15 +1115,16 @@ function renderDebug() {
   if (!state.dbg) return;
   const st = dbgStatus();
   const active = !!st.active;
-  const running = active && st.state === "running";
-  const stopped = active && st.state === "stopped";
+  const running = active && (st.state === "running" || !!st.steps);
+  const stopped = active && st.state === "stopped" && !st.steps;
   const f = st.frame;
 
   // Estado
   const dot = $("dbg-state").querySelector(".dot");
   dot.className = "dot" + ({ stopped: " ok", running: " busy", starting: " busy", error: " err" }[st.state] || "");
   let label = DBG_LABELS[st.state] || st.state;
-  if (stopped && f) label = `Detenido en ${f.func}()` + (f.file ? ` · ${f.file}:${f.line}` : "") + (st.stop_reason ? ` (${st.stop_reason})` : "");
+  if (st.steps) label = `Paso ${st.steps.done} de ${st.steps.total}…`;
+  else if (stopped && f) label = `Detenido en ${f.func}()` + (f.file ? ` · ${f.file}:${f.line}` : "") + (st.stop_reason ? ` (${st.stop_reason})` : "");
   $("dbg-state").querySelector("span").textContent = label;
   $("dbg-state").title = label;
 
@@ -1209,6 +1212,8 @@ function bindDebugUI() {
   $("btn-dbg-start").addEventListener("click", startDebug);
   $("btn-dbg-stop").addEventListener("click", stopDebug);
   for (const btn of document.querySelectorAll(".dbg-ctl")) btn.addEventListener("click", () => dbgControl(btn.dataset.dbg));
+  $("sel-dbg-count").value = String(prefs.get("dbgcount", 1));
+  $("sel-dbg-count").addEventListener("change", (ev) => prefs.set("dbgcount", parseInt(ev.target.value, 10) || 1));
   $("sel-dbg-source").addEventListener("change", (ev) => showSource(Number(ev.target.value)));
   $("btn-dbg-clear-bps").addEventListener("click", (ev) => { ev.preventDefault(); clearBreakpoints(); });
   $("dbg-code").addEventListener("click", (ev) => {

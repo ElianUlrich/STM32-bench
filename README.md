@@ -571,6 +571,8 @@ navegador ──HTTP/SSE──► app (DebugSession) ──MI──► arm-none-
 3. Controles (y atajos, con la pestaña abierta): **Continuar** (F5), **Pausar** (F6), **Paso** (F10,
    ejecuta la línea sin entrar a las funciones), **Entrar** (F11), **Salir** (Shift+F11, termina la
    función actual), **Reset** (reinicia el micro y queda detenido).
+   El selector **×1 / ×5 / ×10 / ×50 / ×100** repite Paso y Entrar esa cantidad de veces: frena antes
+   si aparece un breakpoint o el programa termina, se corta con Pausar, y las variables se leen al final.
 4. Al detenerse se marca la línea actual (y se abre el archivo que corresponda) y se actualizan:
    - **Variables locales** y **globales** del proyecto: clic en un valor para cambiarlo
      (números `123`, `0x7B`, `0b101`, `'a'`, `true/false`). Los que cambiaron desde la última parada

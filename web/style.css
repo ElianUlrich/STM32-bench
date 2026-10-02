@@ -399,7 +399,8 @@ details.adv .ic { width: 14px; height: 14px; }
 #tab-debug { gap: 8px; overflow: hidden; }
 .dbg-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; flex: 0 0 auto; }
 .dbg-bar select { width: auto; height: 30px; font-size: 12.5px; }
-.dbg-tools { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.dbg-tools { display: inline-flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.dbg-tools .dbg-count { width: auto; height: 30px; font-size: 12.5px; font-variant-numeric: tabular-nums; padding: 0 4px; }
 .dbg-sep { width: 1px; align-self: stretch; background: var(--border); margin: 2px 2px; }
 .dbg-state { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; margin-left: auto; min-width: 0; color: var(--text-2); }
 .dbg-state span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

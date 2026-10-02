@@ -327,3 +327,37 @@ def test_sources_uploaded_during_session(client, settings):
     st = client.get("/api/debug").json()
     assert st["frame"]["source_id"] is not None and st["frame"]["file"] == "placa.c"
     client.post("/api/debug/stop")
+
+
+# ------------------------------------------------------- pasos repetidos (×5, ×10...)
+
+def test_repeat_next_n_times(client):
+    st = start(client, mode="attach").json()                       # detenido en esperar_ms, línea 56
+    assert (st["frame"]["func"], st["frame"]["line"]) == ("esperar_ms", 56)
+    r = client.post("/api/debug/control", json={"action": "next", "count": 5})
+    assert r.status_code == 200, r.text
+    st = wait_debug(client, lambda s: s["state"] == "stopped" and s.get("steps") is None and s["stop_reason"] == "5 pasos")
+    # 5 pasos desde la espera: vuelve a main (29), llama a contador_paso (30), vuelve al for (29)...
+    assert st["frame"]["func"] == "main"
+    assert int(st["globals"][0]["value"]) == 5441                   # pasó dos veces por contador_paso
+    client.post("/api/debug/stop")
+
+
+def test_repeat_stops_at_breakpoint(client):
+    st = start(client).json()                                      # grabar y parar en main (línea 25)
+    sources = client.get("/api/debug/sources", params={"file": ELF}).json()["sources"]
+    main_c = next(s for s in sources if s["base"] == "03_contador_binario.c")
+    client.post("/api/debug/breakpoint", json={"source_id": main_c["id"], "line": 19})
+    client.post("/api/debug/control", json={"action": "next", "count": 100})
+    st = wait_debug(client, lambda s: s["state"] == "stopped" and s["stop_reason"] == "breakpoint")
+    assert st["frame"]["func"] == "contador_paso" and st["frame"]["line"] == 19
+    client.post("/api/debug/stop")
+
+
+def test_repeat_count_validation(client):
+    start(client, mode="attach")
+    for body in ({"action": "next", "count": 0}, {"action": "next", "count": 1001},
+                 {"action": "continue", "count": 5}):
+        r = client.post("/api/debug/control", json=body)
+        assert r.status_code == 400, body
+    client.post("/api/debug/stop")

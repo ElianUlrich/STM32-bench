@@ -35,6 +35,8 @@ LVALUE_RE = re.compile(r"^[A-Za-z_]\w*(\s*(\.|->)\s*[A-Za-z_]\w*|\s*\[\s*\d{1,6}
 VALUE_RE = re.compile(r"^(-?(0[xX][0-9A-Fa-f]{1,16}|0[bB][01]{1,64}|\d{1,20}(\.\d+)?([eE][-+]?\d{1,3})?)[uUlLfF]{0,3}"
                       r"|'(\\.|[^'\\])'|true|false)$")
 CONTROL_ACTIONS = ("continue", "pause", "next", "step", "finish", "reset")
+REPEATABLE = ("next", "step")          # Paso y Entrar se pueden repetir (×5, ×10...)
+MAX_REPEAT = 1000
 STOP_REASONS = {
     "breakpoint-hit": "breakpoint", "end-stepping-range": "paso", "function-finished": "fin de función",
     "signal-received": "pausa", "location-reached": "llegó", "watchpoint-trigger": "watchpoint",
@@ -204,6 +206,9 @@ class DebugSession:
         self.breakpoints: Dict[int, Dict[str, Any]] = {}
         self.stop_reason: Optional[str] = None
         self._target_running = False          # estado real del chip (state se actualiza al leer variables)
+        self._last_reason = ""                 # motivo de la última parada, tal como lo da GDB
+        self.steps: Optional[Dict[str, Any]] = None    # pasos repetidos en curso: {"done", "total"}
+        self._cancel_steps = False
         self._last_section: Optional[str] = None
         self._frames_raw: List[Dict[str, Any]] = []
         self._stop_seq = 0
@@ -218,7 +223,7 @@ class DebugSession:
     def status(self) -> Dict[str, Any]:
         return {
             "state": self.state, "active": self.active, "message": self.message, **self.info,
-            "stop_reason": self.stop_reason, "frame": self.frame, "stack": self.stack,
+            "stop_reason": self.stop_reason, "steps": self.steps, "frame": self.frame, "stack": self.stack,
             "locals": self.locals, "globals": self.globals, "registers": self.registers,
             "watches": self.watch_values if self.watch_values else [{"expr": w} for w in self.watches],
             "breakpoints": sorted(self.breakpoints.values(), key=lambda b: b["number"]),
@@ -253,6 +258,7 @@ class DebugSession:
                 self.publish()
         elif rec.kind == "exec" and rec.cls == "stopped":
             reason = str(rec.results.get("reason", ""))
+            self._last_reason = reason
             if reason.startswith("exited"):
                 self.message = "El programa terminó"
             self._target_running = False
@@ -510,13 +516,33 @@ class DebugSession:
         if self.state not in ("stopped", "running"):
             raise DebugError("La sesión no está lista")
 
-    async def control(self, action: str) -> Dict[str, Any]:
+    async def control(self, action: str, count: int = 1) -> Dict[str, Any]:
         if action not in CONTROL_ACTIONS:
             raise DebugError("Acción desconocida")
+        count = int(count)
+        if count != 1 and action not in REPEATABLE:
+            raise DebugError("Sólo Paso y Entrar se pueden repetir")
+        if not 1 <= count <= MAX_REPEAT:
+            raise DebugError(f"Cantidad de pasos fuera de rango (1 a {MAX_REPEAT})")
         self._require()
         if action == "pause":
+            if self.steps is not None:
+                self._cancel_steps = True          # corta la serie de pasos repetidos
             if self._target_running:
                 await self._send("-exec-interrupt")
+            return self.status()
+        if self.steps is not None:
+            raise DebugError("Hay una serie de pasos en curso: esperá o tocá Pausar")
+        if count > 1:
+            if self._target_running:
+                raise DebugError("El programa está corriendo: pausalo primero")
+            # Corre en segundo plano: el pedido vuelve enseguida y el avance llega por SSE.
+            self.steps = {"done": 0, "total": count}
+            self._cancel_steps = False
+            self.state = "running"
+            self.stop_reason = None
+            self.publish()
+            asyncio.get_running_loop().create_task(self._repeat(action, count))
             return self.status()
         if action == "reset":
             async with self._lock:
@@ -549,6 +575,44 @@ class DebugSession:
                 self.stop_reason = None
         self.publish()
         return self.status()
+
+    async def _repeat(self, action: str, count: int) -> None:
+        """Paso o Entrar `count` veces. Frena antes si aparece un breakpoint, el programa
+        termina o se toca Pausar. Las variables se leen una sola vez, al final."""
+        done = 0
+        error: Optional[str] = None
+        async with self._lock:
+            self._quiet += 1
+            try:
+                for _ in range(count):
+                    if self._cancel_steps or not self.active:
+                        break
+                    assert self._stopped_evt is not None
+                    self._stopped_evt.clear()
+                    await self._send(f"-exec-{action}")
+                    await asyncio.wait_for(self._stopped_evt.wait(), 30)
+                    done += 1
+                    self.steps = {"done": done, "total": count}
+                    self.state = "running"
+                    if done % 5 == 0 or done == count:
+                        self.publish()              # avance, sin leer variables (rápido)
+                    if self._last_reason != "end-stepping-range":
+                        break                       # breakpoint, pausa, fin del programa...
+            except (DebugError, asyncio.TimeoutError) as exc:
+                error = str(exc) or "GDB no respondió"
+            finally:
+                self._quiet -= 1
+            if self.active and not self._target_running:
+                await self._refresh()
+                self.state = "stopped"
+                if self._last_reason == "end-stepping-range" or self._cancel_steps:
+                    self.stop_reason = f"{done} pasos" if done != 1 else "paso"
+                    if self._cancel_steps and done < count:
+                        self.stop_reason += f" de {count} (pausa)"
+            self.message = f"Se cortó la serie de pasos: {error}" if error else self.message
+        self.steps = None
+        self._cancel_steps = False
+        self.publish()
 
     async def _while_paused(self, fn):
         """Ejecuta fn con el programa detenido; si estaba corriendo, lo pausa y lo reanuda."""
