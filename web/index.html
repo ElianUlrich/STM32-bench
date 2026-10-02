@@ -3,61 +3,110 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Banco STM32</title>
+  <meta name="color-scheme" content="light dark">
+  <title>Banco STM32 — Laboratorio remoto</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="style.css">
   <script src="app.js" defer></script>
 </head>
 <body>
+  <!-- Íconos (trazo de 24 px, color = currentColor). Se usan con <svg><use href="#i-..."/></svg>. -->
+  <svg class="sprite" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+    <symbol id="i-chip" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/><rect x="9.5" y="9.5" width="5" height="5" rx=".5"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"/></symbol>
+    <symbol id="i-zap" viewBox="0 0 24 24"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 21s7-3.5 7-9.5V5.5L12 3 5 5.5v6C5 17.5 12 21 12 21z"/><path d="m9 12 2 2 4-4"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M9 7V4h6v3M6 7l1 13h10l1-13"/></symbol>
+    <symbol id="i-rotate" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 2.6-6.4"/><path d="M3 3v5h5"/></symbol>
+    <symbol id="i-pause" viewBox="0 0 24 24"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4.5v15l12-7.5z"/></symbol>
+    <symbol id="i-scan" viewBox="0 0 24 24"><path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/><rect x="8.5" y="8.5" width="7" height="7" rx="1"/></symbol>
+    <symbol id="i-step-over" viewBox="0 0 24 24"><path d="M4 14a8 8 0 0 1 15-4"/><path d="M20 4v6h-6"/><circle cx="12" cy="19" r="1.6"/></symbol>
+    <symbol id="i-step-into" viewBox="0 0 24 24"><path d="M12 3v11M7 9l5 5 5-5"/><circle cx="12" cy="19.5" r="1.6"/></symbol>
+    <symbol id="i-step-out" viewBox="0 0 24 24"><path d="M12 15V4M7 9l5-5 5 5"/><circle cx="12" cy="19.5" r="1.6"/></symbol>
+    <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1.5"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="M10.3 4.2 2.6 17.5A2 2 0 0 0 4.3 20.5h15.4a2 2 0 0 0 1.7-3L13.7 4.2a2 2 0 0 0-3.4 0z"/><path d="M12 10v4M12 17.5v.01"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8v.01"/></symbol>
+    <symbol id="i-upload" viewBox="0 0 24 24"><path d="M20 15v3a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-3"/><path d="m7 9 5-5 5 5M12 4v12"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H9l2 2.5h7.5A2.5 2.5 0 0 1 21 10v6.5a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 16.5z"/></symbol>
+    <symbol id="i-bug" viewBox="0 0 24 24"><rect x="8" y="7" width="8" height="12" rx="4"/><path d="M9.5 7a2.5 2.5 0 0 1 5 0M3 13h5M16 13h5M4 7.5l4 2M20 7.5l-4 2M4 19l4-2.5M20 19l-4-2.5M12 11v8"/></symbol>
+    <symbol id="i-terminal" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M13 15h4"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+    <symbol id="i-server" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5v.01M7 16.5v.01"/></symbol>
+    <symbol id="i-power" viewBox="0 0 24 24"><path d="M12 3v9"/><path d="M18.4 6.6a9 9 0 1 1-12.8 0"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 12a8 8 0 0 1-14.2 5M4 12A8 8 0 0 1 18.2 7"/><path d="M19 3v4h-4M5 21v-4h4"/></symbol>
+    <symbol id="i-plug" viewBox="0 0 24 24"><path d="M9 3v5M15 3v5M6 8h12v3a6 6 0 0 1-12 0zM12 17v4"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4.5A1.5 1.5 0 0 1 3 13.5v-9A1.5 1.5 0 0 1 4.5 3h9A1.5 1.5 0 0 1 15 4.5V5"/></symbol>
+    <symbol id="i-logout" viewBox="0 0 24 24"><path d="M9 20H5.5A1.5 1.5 0 0 1 4 18.5v-13A1.5 1.5 0 0 1 5.5 4H9"/><path d="m16 16 4-4-4-4M20 12H9"/></symbol>
+    <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 3H6.5A1.5 1.5 0 0 0 5 4.5v15A1.5 1.5 0 0 0 6.5 21h11a1.5 1.5 0 0 0 1.5-1.5V8z"/><path d="M14 3v5h5"/></symbol>
+    <symbol id="i-send" viewBox="0 0 24 24"><path d="M21 3 10 14"/><path d="m21 3-7 18-4-7-7-4z"/></symbol>
+    <symbol id="i-usb" viewBox="0 0 24 24"><circle cx="12" cy="19" r="2"/><path d="M12 17V4M9 6.5 12 3.5l3 3M12 13l-4-2.5V8M12 11l4-2V6.5"/><rect x="15" y="4.5" width="2" height="2"/><circle cx="8" cy="7" r="1"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/></symbol>
+    <symbol id="i-cable" viewBox="0 0 24 24"><path d="M4 9a2 2 0 0 1 2-2h3v6H6a2 2 0 0 1-2-2zM9 8h3M9 12h3M15 16a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-2h-5zM17 14v-3a4 4 0 0 0-4-4h-1M17.5 18v3"/></symbol>
+  </svg>
+
   <header class="topbar">
-    <div class="brand">
-      <svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1.5"/><path d="M9 2v4M12 2v4M15 2v4M9 18v4M12 18v4M15 18v4M2 9h4M2 12h4M2 15h4M18 9h4M18 12h4M18 15h4"/></svg>
-      <span>Banco STM32</span>
-      <span id="mock-badge" class="badge warn" hidden>MODO MOCK</span>
-    </div>
-    <div class="top-status">
-      <span class="pill" id="pill-job"><i class="dot"></i><span>Libre</span></span>
-      <span class="pill" id="pill-gdb"><i class="dot"></i><span>GDB detenido</span></span>
-      <span class="pill hide-sm" id="pill-host"><span>—</span></span>
+    <a class="brand" href="#archivos" aria-label="Banco STM32 — inicio">
+      <span class="brand-tile"><svg class="ic" aria-hidden="true"><use href="#i-chip"/></svg></span>
+      <span class="brand-text">
+        <span class="brand-name">Banco STM32</span>
+        <span class="brand-sub hide-sm">Laboratorio remoto de microcontroladores</span>
+      </span>
+      <span id="mock-badge" class="badge warn" hidden>SIMULACIÓN</span>
+    </a>
+    <div class="top-status" role="status" aria-live="polite">
+      <span class="pill" id="pill-job" title="Estado del programador"><i class="dot"></i><span>Libre</span></span>
+      <span class="pill" id="pill-gdb" title="Servidor GDB"><i class="dot"></i><span>GDB detenido</span></span>
+      <span class="pill hide-sm" id="pill-host" title="Placa y su IP de Tailscale">
+        <svg class="ic" aria-hidden="true"><use href="#i-server"/></svg><span>—</span></span>
     </div>
     <div class="top-user">
       <span id="user-name" class="muted hide-sm"></span>
-      <button class="btn ghost small" id="btn-logout" type="button">Salir</button>
+      <button class="btn ghost small" id="btn-logout" type="button" aria-label="Cerrar sesión">
+        <svg class="ic" aria-hidden="true"><use href="#i-logout"/></svg><span class="hide-sm">Salir</span></button>
     </div>
   </header>
 
-  <div id="config-errors" class="banner error" hidden></div>
+  <div id="config-errors" class="banner error" role="alert" hidden></div>
   <div id="cfg-missing" class="banner warn" hidden></div>
 
   <main class="layout">
-    <!-- Columna izquierda: target, acciones y GDB -->
-    <section class="col-left">
+    <!-- Columna izquierda: placa, firmware, acciones y GDB -->
+    <section class="col-left" aria-label="Placa y acciones">
       <div class="card">
-        <h2>Target</h2>
+        <h2 class="card-title"><svg class="ic" aria-hidden="true"><use href="#i-chip"/></svg>Placa</h2>
         <label class="field">
           <span>Placa / chip</span>
           <select id="sel-chip"></select>
         </label>
         <div class="field">
-          <span>Método</span>
-          <div class="segmented" id="seg-method" role="radiogroup"></div>
+          <span id="lbl-method">Método</span>
+          <div class="segmented" id="seg-method" role="radiogroup" aria-labelledby="lbl-method"></div>
         </div>
 
         <div id="swd-fields">
-          <label class="field">
-            <span>Interfaz</span>
-            <select id="sel-interface"></select>
-          </label>
           <div class="field">
-            <span>ST-Link <button type="button" class="link small" id="btn-refresh-probes">actualizar</button></span>
+            <span><label for="sel-probe">ST-Link</label>
+              <button type="button" class="link small" id="btn-refresh-probes">
+                <svg class="ic" aria-hidden="true"><use href="#i-refresh"/></svg>actualizar</button></span>
             <select id="sel-probe"></select>
             <small id="probe-note" class="note"></small>
           </div>
+          <details class="adv" id="adv-swd">
+            <summary><svg class="ic" aria-hidden="true"><use href="#i-settings"/></svg>Opciones avanzadas</summary>
+            <label class="field">
+              <span>Interfaz de OpenOCD</span>
+              <select id="sel-interface"></select>
+            </label>
+          </details>
         </div>
 
         <div id="dfu-fields" hidden>
           <div class="field">
-            <span>Dispositivo DFU <button type="button" class="link small" id="btn-refresh-dfu">actualizar</button></span>
+            <span><label for="sel-dfu">Dispositivo DFU</label>
+              <button type="button" class="link small" id="btn-refresh-dfu">
+                <svg class="ic" aria-hidden="true"><use href="#i-refresh"/></svg>actualizar</button></span>
             <select id="sel-dfu"></select>
             <small id="dfu-note" class="note"></small>
           </div>
@@ -66,7 +115,9 @@
 
         <div id="serial-fields" hidden>
           <div class="field">
-            <span>Puerto serie de la placa <button type="button" class="link small" id="btn-refresh-ports">actualizar</button></span>
+            <span><label for="sel-prog-port">Puerto serie de la placa</label>
+              <button type="button" class="link small" id="btn-refresh-ports">
+                <svg class="ic" aria-hidden="true"><use href="#i-refresh"/></svg>actualizar</button></span>
             <select id="sel-prog-port"></select>
             <small id="port-note" class="note"></small>
           </div>
@@ -75,7 +126,7 @@
       </div>
 
       <div class="card">
-        <h2>Firmware</h2>
+        <h2 class="card-title"><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg>Firmware</h2>
         <div id="fw-selected" class="fw-selected empty">Elegí un archivo en la pestaña <em>Archivos</em></div>
         <p id="fw-target-warn" class="note warn-text" hidden></p>
         <label class="field" id="addr-field" hidden>
@@ -89,106 +140,139 @@
       </div>
 
       <div class="card">
-        <h2>Acciones</h2>
+        <h2 class="card-title"><svg class="ic" aria-hidden="true"><use href="#i-zap"/></svg>Acciones</h2>
         <div class="actions">
-          <button class="btn primary wide" data-action="flash" type="button">Flashear</button>
-          <button class="btn" data-action="verify" type="button">Verificar</button>
-          <button class="btn danger-outline" data-action="erase" type="button">Borrar flash</button>
-          <button class="btn" data-action="reset" type="button">Reset</button>
-          <button class="btn" data-action="halt" type="button">Halt</button>
-          <button class="btn" data-action="resume" type="button">Run</button>
-          <button class="btn" data-action="info" type="button" title="Lee qué chip está conectado">Identificar</button>
+          <button class="btn primary wide" data-action="flash" type="button">
+            <svg class="ic" aria-hidden="true"><use href="#i-zap"/></svg>Flashear</button>
+          <button class="btn" data-action="verify" type="button">
+            <svg class="ic" aria-hidden="true"><use href="#i-shield"/></svg>Verificar</button>
+          <button class="btn danger-outline" data-action="erase" type="button">
+            <svg class="ic" aria-hidden="true"><use href="#i-trash"/></svg>Borrar</button>
+          <button class="btn" data-action="reset" type="button">
+            <svg class="ic" aria-hidden="true"><use href="#i-rotate"/></svg>Reset</button>
+          <button class="btn" data-action="halt" type="button">
+            <svg class="ic" aria-hidden="true"><use href="#i-pause"/></svg>Halt</button>
+          <button class="btn" data-action="resume" type="button">
+            <svg class="ic" aria-hidden="true"><use href="#i-play"/></svg>Run</button>
+          <button class="btn" data-action="info" type="button" title="Lee qué chip está conectado">
+            <svg class="ic" aria-hidden="true"><use href="#i-scan"/></svg>Identificar</button>
         </div>
         <p id="method-reason" class="note info" hidden></p>
-        <div id="job-box" class="job-box" hidden>
-          <div class="job-line"><i class="spinner"></i><span id="job-desc"></span></div>
+        <div id="job-box" class="job-box" role="status" hidden>
+          <div class="job-line"><i class="spinner" aria-hidden="true"></i><span id="job-desc"></span></div>
           <button class="btn small" id="btn-cancel" type="button">Cancelar</button>
         </div>
-        <div id="last-result" class="last-result" hidden></div>
+        <div id="last-result" class="last-result" role="status" aria-live="polite" hidden></div>
       </div>
 
       <div class="card" id="gdb-card">
-        <h2>Servidor GDB</h2>
+        <h2 class="card-title"><svg class="ic" aria-hidden="true"><use href="#i-plug"/></svg>Servidor GDB</h2>
         <div class="gdb-status">
           <i class="dot" id="gdb-dot"></i>
           <span id="gdb-state">Detenido</span>
         </div>
         <div id="gdb-connect" class="gdb-connect" hidden>
           <code id="gdb-addr"></code>
-          <button class="btn small" id="btn-copy-gdb" type="button">Copiar</button>
+          <button class="btn small" id="btn-copy-gdb" type="button" aria-label="Copiar la dirección del servidor GDB">
+            <svg class="ic" aria-hidden="true"><use href="#i-copy"/></svg>Copiar</button>
         </div>
         <small class="note" id="gdb-note"></small>
         <div class="row">
-          <button class="btn" id="btn-gdb-start" type="button">Iniciar</button>
-          <button class="btn" id="btn-gdb-stop" type="button" disabled>Detener</button>
+          <button class="btn" id="btn-gdb-start" type="button">
+            <svg class="ic" aria-hidden="true"><use href="#i-play"/></svg>Iniciar</button>
+          <button class="btn" id="btn-gdb-stop" type="button" disabled>
+            <svg class="ic" aria-hidden="true"><use href="#i-stop"/></svg>Detener</button>
         </div>
       </div>
     </section>
 
-    <!-- Columna derecha: pestañas + log siempre visible -->
-    <section class="col-right">
+    <!-- Columna derecha: pestañas + log en vivo (con separador para cambiar la altura) -->
+    <section class="col-right" aria-label="Espacio de trabajo">
       <div class="panel tabs-panel">
-        <nav class="tabs" role="tablist">
-          <button type="button" role="tab" data-tab="files" class="active">Archivos</button>
-          <button type="button" role="tab" data-tab="debug">Depurar</button>
-          <button type="button" role="tab" data-tab="serial">Monitor serie</button>
-          <button type="button" role="tab" data-tab="history">Historial</button>
-          <button type="button" role="tab" data-tab="system">Sistema</button>
+        <nav class="tabs" role="tablist" aria-label="Secciones">
+          <button type="button" role="tab" id="tabbtn-files" aria-controls="tab-files" data-tab="files" class="active">
+            <svg class="ic" aria-hidden="true"><use href="#i-folder"/></svg>Archivos</button>
+          <button type="button" role="tab" id="tabbtn-debug" aria-controls="tab-debug" data-tab="debug">
+            <svg class="ic" aria-hidden="true"><use href="#i-bug"/></svg>Depurar</button>
+          <button type="button" role="tab" id="tabbtn-serial" aria-controls="tab-serial" data-tab="serial">
+            <svg class="ic" aria-hidden="true"><use href="#i-terminal"/></svg>Monitor serie</button>
+          <button type="button" role="tab" id="tabbtn-history" aria-controls="tab-history" data-tab="history">
+            <svg class="ic" aria-hidden="true"><use href="#i-clock"/></svg>Historial</button>
+          <button type="button" role="tab" id="tabbtn-system" aria-controls="tab-system" data-tab="system">
+            <svg class="ic" aria-hidden="true"><use href="#i-server"/></svg>Sistema</button>
         </nav>
 
-        <div class="tab" id="tab-files">
-          <div id="dropzone" class="dropzone" tabindex="0">
+        <div class="tab" id="tab-files" role="tabpanel" aria-labelledby="tabbtn-files">
+          <div id="dropzone" class="dropzone" tabindex="0" aria-label="Subir archivos: arrastrá o presioná Enter para elegir">
             <input type="file" id="file-input" accept=".elf,.hex,.bin,.zip" multiple hidden>
-            <div>Arrastrá <strong>.elf</strong>, <strong>.hex</strong>, <strong>.bin</strong> o un proyecto <strong>.zip</strong> (con las fuentes, para depurar) acá, o <button type="button" class="link" id="btn-pick">elegí archivos</button></div>
-            <label class="inline">Placa <select id="sel-upload-target" class="upload-target"></select></label>
-            <label class="inline">Proyecto <input id="inp-project" type="text" value="general" spellcheck="false" autocomplete="off"></label>
+            <span class="drop-icon" aria-hidden="true"><svg class="ic"><use href="#i-upload"/></svg></span>
+            <div class="drop-text">
+              <strong>Arrastrá el firmware acá</strong> o <button type="button" class="link" id="btn-pick">elegí archivos</button>
+              <small class="muted">.elf, .hex, .bin o un proyecto .zip con las fuentes (para depurar)</small>
+            </div>
+            <div class="drop-opts">
+              <label class="inline">Placa <select id="sel-upload-target" class="upload-target"></select></label>
+              <label class="inline">Proyecto <input id="inp-project" type="text" value="general" spellcheck="false" autocomplete="off"></label>
+            </div>
             <small class="muted" id="upload-limit"></small>
           </div>
-          <div id="upload-status" class="note"></div>
+          <div id="upload-status" class="note" role="status" aria-live="polite"></div>
           <div class="files-toolbar">
-            <input id="inp-filter" type="search" placeholder="Filtrar archivos…" autocomplete="off">
-            <button type="button" class="btn small ghost" id="btn-refresh-files">Actualizar</button>
+            <input id="inp-filter" type="search" placeholder="Filtrar archivos…" autocomplete="off" aria-label="Filtrar archivos">
+            <button type="button" class="btn small" id="btn-refresh-files">
+              <svg class="ic" aria-hidden="true"><use href="#i-refresh"/></svg>Actualizar</button>
           </div>
           <div id="files-list" class="files-list"></div>
           <small class="muted" id="projects-dir"></small>
         </div>
 
-        <div class="tab" id="tab-debug" hidden>
+        <div class="tab" id="tab-debug" role="tabpanel" aria-labelledby="tabbtn-debug" hidden>
           <div class="dbg-bar">
-            <select id="sel-dbg-mode" title="Cómo empieza la sesión">
+            <select id="sel-dbg-mode" title="Cómo empieza la sesión" aria-label="Cómo empieza la sesión">
               <option value="load">Grabar y parar en main</option>
               <option value="reset">Reiniciar y parar en main</option>
               <option value="attach">Conectarse sin reiniciar</option>
             </select>
-            <button class="btn small primary" id="btn-dbg-start" type="button">Iniciar depuración</button>
-            <button class="btn small" id="btn-dbg-stop" type="button" hidden>Detener</button>
+            <button class="btn small primary" id="btn-dbg-start" type="button">
+              <svg class="ic" aria-hidden="true"><use href="#i-bug"/></svg>Iniciar depuración</button>
+            <button class="btn small" id="btn-dbg-stop" type="button" hidden>
+              <svg class="ic" aria-hidden="true"><use href="#i-stop"/></svg>Detener</button>
             <span class="dbg-sep" aria-hidden="true"></span>
-            <button class="btn small dbg-ctl" data-dbg="continue" type="button" title="Continuar (F5)">▶ Continuar</button>
-            <button class="btn small dbg-ctl" data-dbg="pause" type="button" title="Pausar (F6)">⏸ Pausar</button>
-            <button class="btn small dbg-ctl" data-dbg="next" type="button" title="Paso: ejecuta la línea sin entrar a las funciones (F10)">↷ Paso</button>
-            <button class="btn small dbg-ctl" data-dbg="step" type="button" title="Entrar a la función de esta línea (F11)">↓ Entrar</button>
-            <button class="btn small dbg-ctl" data-dbg="finish" type="button" title="Terminar la función y volver a quien la llamó (Shift+F11)">↑ Salir</button>
-            <button class="btn small dbg-ctl" data-dbg="reset" type="button" title="Reiniciar el micro (queda detenido al principio)">⟲ Reset</button>
-            <span class="dbg-state" id="dbg-state"><i class="dot"></i><span>Sin sesión</span></span>
+            <div class="dbg-tools" role="toolbar" aria-label="Control de ejecución">
+              <button class="btn small dbg-ctl" data-dbg="continue" type="button" title="Continuar (F5)">
+                <svg class="ic" aria-hidden="true"><use href="#i-play"/></svg>Continuar</button>
+              <button class="btn small dbg-ctl" data-dbg="pause" type="button" title="Pausar (F6)">
+                <svg class="ic" aria-hidden="true"><use href="#i-pause"/></svg>Pausar</button>
+              <button class="btn small dbg-ctl" data-dbg="next" type="button" title="Paso: ejecuta la línea sin entrar a las funciones (F10)">
+                <svg class="ic" aria-hidden="true"><use href="#i-step-over"/></svg>Paso</button>
+              <button class="btn small dbg-ctl" data-dbg="step" type="button" title="Entrar a la función de esta línea (F11)">
+                <svg class="ic" aria-hidden="true"><use href="#i-step-into"/></svg>Entrar</button>
+              <button class="btn small dbg-ctl" data-dbg="finish" type="button" title="Terminar la función y volver a quien la llamó (Shift+F11)">
+                <svg class="ic" aria-hidden="true"><use href="#i-step-out"/></svg>Salir</button>
+              <button class="btn small dbg-ctl" data-dbg="reset" type="button" title="Reiniciar el micro (queda detenido al principio)">
+                <svg class="ic" aria-hidden="true"><use href="#i-rotate"/></svg>Reset</button>
+            </div>
+            <span class="dbg-state" id="dbg-state" role="status" aria-live="polite"><i class="dot"></i><span>Sin sesión</span></span>
           </div>
           <div id="dbg-note" class="note" hidden></div>
           <div class="dbg-main">
             <div class="dbg-code-wrap">
               <div class="dbg-code-head">
-                <select id="sel-dbg-source" title="Archivo fuente"></select>
+                <select id="sel-dbg-source" title="Archivo fuente" aria-label="Archivo fuente"></select>
                 <small class="muted" id="dbg-source-path"></small>
               </div>
-              <div id="dbg-code" class="dbg-code" tabindex="0">
+              <div id="dbg-code" class="dbg-code" tabindex="0" aria-label="Código fuente">
                 <div class="empty-state" id="dbg-empty">Elegí un <strong>.elf</strong> en la pestaña Archivos.</div>
               </div>
             </div>
-            <aside class="dbg-side">
+            <aside class="dbg-side" aria-label="Estado del programa">
               <details open><summary>Variables locales</summary><table class="vars" id="dbg-locals"></table></details>
               <details open><summary>Globales</summary><table class="vars" id="dbg-globals"></table></details>
               <details open>
                 <summary>Vigilar</summary>
                 <form id="dbg-watch-form" class="watch-form">
-                  <input id="inp-watch" type="text" placeholder="expresión, p. ej. contador &amp; 0xFF" autocomplete="off" spellcheck="false">
+                  <input id="inp-watch" type="text" placeholder="expresión, p. ej. contador &amp; 0xFF" autocomplete="off"
+                         spellcheck="false" aria-label="Agregar expresión a vigilar">
                 </form>
                 <table class="vars" id="dbg-watches"></table>
               </details>
@@ -202,71 +286,81 @@
           </div>
         </div>
 
-        <div class="tab" id="tab-serial" hidden>
+        <div class="tab" id="tab-serial" role="tabpanel" aria-labelledby="tabbtn-serial" hidden>
           <div class="serial-bar">
-            <select id="sel-port"></select>
-            <select id="sel-baud"></select>
-            <button class="btn small" id="btn-serial-open" type="button">Abrir</button>
-            <button class="btn small" id="btn-serial-close" type="button" disabled>Cerrar</button>
+            <select id="sel-port" aria-label="Puerto"></select>
+            <select id="sel-baud" aria-label="Velocidad"></select>
+            <button class="btn small primary" id="btn-serial-open" type="button">
+              <svg class="ic" aria-hidden="true"><use href="#i-play"/></svg>Abrir</button>
+            <button class="btn small" id="btn-serial-close" type="button" disabled>
+              <svg class="ic" aria-hidden="true"><use href="#i-stop"/></svg>Cerrar</button>
             <button class="btn small ghost" id="btn-serial-clear" type="button">Limpiar</button>
             <label class="check small"><input type="checkbox" id="chk-serial-auto" checked><span>Autoscroll</span></label>
           </div>
-          <pre id="serial-out" class="term"></pre>
+          <pre id="serial-out" class="term" aria-label="Salida del puerto serie" tabindex="0"></pre>
           <form class="serial-send" id="serial-form">
-            <input id="inp-serial" type="text" placeholder="Texto a enviar…" autocomplete="off" spellcheck="false">
-            <select id="sel-eol" title="Fin de línea">
+            <input id="inp-serial" type="text" placeholder="Texto a enviar…" autocomplete="off" spellcheck="false" aria-label="Texto a enviar">
+            <select id="sel-eol" title="Fin de línea" aria-label="Fin de línea">
               <option value="\n">LF</option>
               <option value="\r\n">CRLF</option>
               <option value="\r">CR</option>
               <option value="">Nada</option>
             </select>
-            <button class="btn small primary" type="submit">Enviar</button>
+            <button class="btn small primary" type="submit">
+              <svg class="ic" aria-hidden="true"><use href="#i-send"/></svg>Enviar</button>
           </form>
         </div>
 
-        <div class="tab" id="tab-history" hidden>
+        <div class="tab" id="tab-history" role="tabpanel" aria-labelledby="tabbtn-history" hidden>
           <table class="table" id="history-table">
             <thead><tr><th>Hora</th><th>Operación</th><th>Resultado</th><th>Duración</th></tr></thead>
             <tbody></tbody>
           </table>
         </div>
 
-        <div class="tab" id="tab-system" hidden>
+        <div class="tab" id="tab-system" role="tabpanel" aria-labelledby="tabbtn-system" hidden>
           <div class="sys-grid" id="sys-grid"></div>
           <div class="usb-box">
-            <h3>USB <button type="button" class="link small" id="btn-usb-refresh">actualizar</button></h3>
+            <h3><svg class="ic" aria-hidden="true"><use href="#i-usb"/></svg>USB
+              <button type="button" class="link small" id="btn-usb-refresh">
+                <svg class="ic" aria-hidden="true"><use href="#i-refresh"/></svg>actualizar</button></h3>
             <p class="note">Lo que está enchufado en la placa. Si un STM32 en modo DFU no aparece como
               <code>0483:df11</code>, el problema es el cable (algunos son sólo de carga) o el USB del STM32 no está conectado.</p>
             <div id="usb-power"></div>
             <table class="table usb-table" id="usb-table"></table>
           </div>
           <div class="power">
-            <h3>Energía</h3>
+            <h3><svg class="ic" aria-hidden="true"><use href="#i-power"/></svg>Energía</h3>
             <p class="note">Apagá la placa antes de cortar la alimentación. Después de apagarla no se puede volver a encender por software.</p>
             <div class="row">
-              <button class="btn danger" id="btn-poweroff" type="button">Apagar</button>
-              <button class="btn" id="btn-reboot" type="button">Reiniciar</button>
+              <button class="btn danger" id="btn-poweroff" type="button">
+                <svg class="ic" aria-hidden="true"><use href="#i-power"/></svg>Apagar</button>
+              <button class="btn" id="btn-reboot" type="button">
+                <svg class="ic" aria-hidden="true"><use href="#i-rotate"/></svg>Reiniciar</button>
             </div>
           </div>
         </div>
       </div>
 
+      <div class="splitter" id="splitter" role="separator" aria-orientation="horizontal" tabindex="0"
+           aria-label="Cambiar la altura del log (flechas arriba y abajo)" title="Arrastrá para cambiar la altura del log"></div>
+
       <div class="panel log-panel" id="log-panel">
         <div class="log-head">
-          <h2>Log en vivo</h2>
+          <h2><svg class="ic" aria-hidden="true"><use href="#i-terminal"/></svg>Log en vivo</h2>
           <div class="log-tools">
             <label class="check small"><input type="checkbox" id="chk-log-auto" checked><span>Autoscroll</span></label>
             <button class="btn small ghost" id="btn-log-clear" type="button">Limpiar</button>
-            <button class="btn small ghost" id="btn-log-toggle" type="button">Ocultar</button>
+            <button class="btn small ghost" id="btn-log-toggle" type="button" aria-controls="log-out">Ocultar</button>
           </div>
         </div>
-        <pre id="log-out" class="term log"></pre>
+        <pre id="log-out" class="term log" aria-label="Log en vivo" tabindex="0"></pre>
       </div>
     </section>
   </main>
 
   <!-- Diálogo de confirmación genérico -->
-  <dialog id="dlg-confirm" class="dialog">
+  <dialog id="dlg-confirm" class="dialog" aria-labelledby="confirm-title" aria-describedby="confirm-text">
     <h3 id="confirm-title"></h3>
     <p id="confirm-text"></p>
     <div class="row end">
@@ -276,10 +370,10 @@
   </dialog>
 
   <!-- Bootloader manual -->
-  <dialog id="dlg-boot" class="dialog">
-    <h3>Modo bootloader</h3>
+  <dialog id="dlg-boot" class="dialog" aria-labelledby="boot-title">
+    <h3 id="boot-title">Modo bootloader</h3>
     <p id="boot-text"></p>
-    <p class="countdown" id="boot-countdown"></p>
+    <p class="countdown" id="boot-countdown" aria-live="polite"></p>
     <div class="row end">
       <button class="btn" id="btn-boot-cancel" type="button">Cancelar operación</button>
     </div>
@@ -290,10 +384,10 @@
     <div class="power-box">
       <h2 id="power-title"></h2>
       <p id="power-text"></p>
-      <p class="countdown" id="power-countdown"></p>
+      <p class="countdown" id="power-countdown" aria-live="polite"></p>
     </div>
   </div>
 
-  <div id="toast" class="toast" hidden></div>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 </body>
 </html>

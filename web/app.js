@@ -77,6 +77,37 @@ function el(tag, attrs, ...children) {
   return node;
 }
 
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+// Ícono del sprite de index.html (decorativo: el texto o el aria-label del control lo nombran).
+function icon(name, cls) {
+  const svg = document.createElementNS(SVG_NS, "svg");
+  svg.setAttribute("class", "ic" + (cls ? " " + cls : ""));
+  svg.setAttribute("aria-hidden", "true");
+  const use = document.createElementNS(SVG_NS, "use");
+  use.setAttribute("href", "#i-" + name);
+  svg.append(use);
+  return svg;
+}
+
+// Mientras dura una acción, el botón queda deshabilitado y muestra que está trabajando.
+async function busy(btn, fn) {
+  if (!btn || btn.classList.contains("is-busy")) return fn();
+  const wasDisabled = btn.disabled;
+  btn.classList.add("is-busy");
+  btn.setAttribute("aria-busy", "true");
+  btn.disabled = true;
+  try {
+    return await fn();
+  } finally {
+    btn.classList.remove("is-busy");
+    btn.removeAttribute("aria-busy");
+    btn.disabled = wasDisabled;
+    // Mientras tanto pudo empezar un trabajo: se recalcula qué botones corresponden.
+    if (state.config) { updateActionButtons(); renderGdb(); }
+  }
+}
+
 let toastTimer = null;
 function toast(message, isError) {
   const t = $("toast");
@@ -462,19 +493,23 @@ function renderFiles() {
         onchange: (ev) => assignTarget(f, ev.target.value),
       }, ...chipOptions("⚠ sin placa"));
       target.value = f.target || "";
+      const selected = !!(state.file && state.file.path === f.path);
       const row = el("div", {
-        class: "file-row" + (state.file && state.file.path === f.path ? " selected" : "") + (f.usable ? "" : " unusable"),
+        class: "file-row" + (selected ? " selected" : "") + (f.usable ? "" : " unusable"),
         title: f.usable ? f.path : "Nombre con caracteres no permitidos: renombralo para poder usarlo",
         onclick: () => { if (f.usable) { setFile(f); renderFiles(); } },
       },
         el("span", { class: "kind " + f.kind }, f.kind),
-        el("span", { class: "name" }, f.name, f.subdir ? el("span", { class: "sub" }, "  " + f.subdir) : null),
+        // Botón: el archivo se elige también con el teclado (Tab + Enter).
+        el("button", { class: "name", type: "button", disabled: !f.usable, "aria-pressed": selected ? "true" : "false",
+          "aria-label": `Elegir ${f.path}`, onclick: (ev) => { ev.stopPropagation(); if (f.usable) { setFile(f); renderFiles(); } } },
+          f.name, f.subdir ? el("span", { class: "sub" }, "  " + f.subdir) : null),
         target,
         el("span", { class: "size" }, fmtSize(f.size)),
         el("span", { class: "date" }, fmtDate(f.mtime)),
         f.deletable
           ? el("button", { class: "icon-btn", type: "button", title: "Borrar", "aria-label": "Borrar " + f.name,
-            onclick: (ev) => { ev.stopPropagation(); deleteFile(f); } }, "✕")
+            onclick: (ev) => { ev.stopPropagation(); deleteFile(f); } }, icon("trash"))
           : el("span", {}));
       return row;
     });
@@ -588,8 +623,8 @@ async function uploadFiles(fileList) {
     try {
       last = await uploadOne(file, project, target);
       $("upload-status").textContent = last.folder
-        ? `✔ Proyecto ${file.name} → ${last.folder}: ${last.firmware.length} binario(s) y ${last.sources} fuente(s), para ${chip.name}`
-        : `✔ ${file.name} subido para ${chip.name}`;
+        ? `Proyecto ${file.name} → ${last.folder}: ${last.firmware.length} binario(s) y ${last.sources} fuente(s), para ${chip.name}`
+        : `${file.name} subido para ${chip.name}`;
       for (const w of last.warnings || []) toast(w, false);
     } catch (e) {
       $("upload-status").textContent = "";
@@ -660,8 +695,8 @@ function showResult(job) {
   const box = $("last-result");
   box.hidden = false;
   box.className = "last-result " + job.state;
-  const icon = { ok: "✔", error: "✘", cancelled: "■" }[job.state] || "";
-  const children = [el("strong", {}, `${icon} ${job.message}`), el("div", { class: "muted" }, job.description)];
+  const glyph = { ok: "check", error: "x", cancelled: "stop" }[job.state];
+  const children = [el("strong", {}, glyph ? icon(glyph) : null, job.message), el("div", { class: "muted" }, job.description)];
   if (job.warnings && job.warnings.length) {
     children.push(el("ul", {}, ...job.warnings.map((w) => el("li", {}, w))));
   }
@@ -1129,7 +1164,8 @@ function renderDebug() {
       el("td", { class: "n" }, w.expr),
       el("td", { class: "v" + (w.error ? " err" : "") + (changed ? " changed" : "") }, value),
       el("td", { class: "x" }, el("button", { class: "icon-btn", type: "button", title: "Quitar",
-        onclick: () => api("DELETE", "/api/debug/watch?index=" + i).then(applyDebugStatus).catch((e) => toast(e.message, true)) }, "✕")));
+        "aria-label": `Dejar de vigilar ${w.expr}`,
+        onclick: () => api("DELETE", "/api/debug/watch?index=" + i).then(applyDebugStatus).catch((e) => toast(e.message, true)) }, icon("x"))));
   }));
   $("dbg-stack").replaceChildren(...(st.stack || []).map((fr) => el("li", {
     class: fr.level === 0 ? "top" : "",
@@ -1144,7 +1180,8 @@ function renderDebug() {
       el("span", {}, `${pending ? "○" : "●"} ${name}:${b.line}`),
       el("span", {}, b.hits ? el("small", {}, `${b.hits}×  `) : null,
         el("button", { class: "icon-btn", type: "button", title: "Sacar",
-          onclick: (ev) => { ev.stopPropagation(); removeBreakpoint(b); } }, "✕")));
+          "aria-label": `Sacar el breakpoint de ${name}:${b.line}`,
+          onclick: (ev) => { ev.stopPropagation(); removeBreakpoint(b); } }, icon("x"))));
   }) : [el("li", { class: "muted" }, el("small", {}, "Clic en un número de línea para agregar"))]));
   $("dbg-regs").replaceChildren(...(st.registers || []).map((r) => el("tr", {},
     el("td", { class: "n" }, r.name), el("td", { class: "v" }, r.value))));
@@ -1537,12 +1574,22 @@ function handlePrompt(ev) {
 
 // ------------------------------------------------------------ pestañas / UI
 
-function showTab(name) {
+const TAB_HASH = { files: "archivos", debug: "depurar", serial: "serie", history: "historial", system: "sistema" };
+const HASH_TAB = Object.fromEntries(Object.entries(TAB_HASH).map(([k, v]) => [v, k]));
+
+function showTab(name, opts) {
+  if (!TAB_HASH[name]) name = "files";
   state.tab = name;
   prefs.set("tab", name);
+  // La pestaña queda en la URL (#depurar...): se puede compartir y "atrás" vuelve a la anterior.
+  if (!(opts && opts.fromHash) && location.hash !== "#" + TAB_HASH[name]) {
+    history.pushState(null, "", "#" + TAB_HASH[name]);
+  }
   for (const btn of document.querySelectorAll(".tabs button")) {
-    btn.classList.toggle("active", btn.dataset.tab === name);
-    btn.setAttribute("aria-selected", btn.dataset.tab === name ? "true" : "false");
+    const active = btn.dataset.tab === name;
+    btn.classList.toggle("active", active);
+    btn.setAttribute("aria-selected", active ? "true" : "false");
+    btn.tabIndex = active ? 0 : -1;
   }
   for (const tab of document.querySelectorAll(".tab")) tab.hidden = tab.id !== "tab-" + name;
   if (name === "system") { loadSystem(); loadUsb(); }
@@ -1564,7 +1611,7 @@ function bindUI() {
   $("sel-prog-port").addEventListener("change", (ev) => prefs.set("progport." + state.chip, ev.target.value));
   $("btn-refresh-dfu").addEventListener("click", refreshProbes);
   for (const btn of document.querySelectorAll("[data-action]")) {
-    btn.addEventListener("click", () => runAction(btn.dataset.action));
+    btn.addEventListener("click", () => busy(btn, () => runAction(btn.dataset.action)));
   }
   $("btn-cancel").addEventListener("click", () => api("POST", "/api/jobs/cancel").catch((e) => toast(e.message, true)));
   $("btn-boot-cancel").addEventListener("click", () => api("POST", "/api/jobs/cancel").catch((e) => toast(e.message, true)));
@@ -1572,15 +1619,20 @@ function bindUI() {
   $("confirm-ok").addEventListener("click", () => finishConfirm(true));
   $("confirm-cancel").addEventListener("click", () => finishConfirm(false));
   $("dlg-confirm").addEventListener("cancel", () => finishConfirm(false));   // tecla Esc
-  $("btn-gdb-start").addEventListener("click", startGdb);
-  $("btn-gdb-stop").addEventListener("click", stopGdb);
+  $("btn-gdb-start").addEventListener("click", () => busy($("btn-gdb-start"), startGdb));
+  $("btn-gdb-stop").addEventListener("click", () => busy($("btn-gdb-stop"), stopGdb));
   $("btn-copy-gdb").addEventListener("click", async () => {
     toast((await copyText($("gdb-addr").textContent)) ? "Copiado" : "No se pudo copiar", false);
   });
 
   // Archivos y subida
   const drop = $("dropzone");
-  $("btn-pick").addEventListener("click", () => $("file-input").click());
+  $("btn-pick").addEventListener("click", (ev) => { ev.stopPropagation(); $("file-input").click(); });
+  // Toda la zona abre el selector (salvo los controles de adentro); con el teclado, Enter o Espacio.
+  drop.addEventListener("click", (ev) => { if (!ev.target.closest("select, input, label, button")) $("file-input").click(); });
+  drop.addEventListener("keydown", (ev) => {
+    if (ev.target === drop && (ev.key === "Enter" || ev.key === " ")) { ev.preventDefault(); $("file-input").click(); }
+  });
   $("file-input").addEventListener("change", (ev) => { uploadFiles([...ev.target.files]); ev.target.value = ""; });
   ["dragenter", "dragover"].forEach((t) => drop.addEventListener(t, (ev) => { ev.preventDefault(); drop.classList.add("over"); }));
   ["dragleave", "drop"].forEach((t) => drop.addEventListener(t, () => drop.classList.remove("over")));
@@ -1649,13 +1701,63 @@ function bindUI() {
   if (prefs.get("logCollapsed", false)) $("btn-log-toggle").click();
 
   // Pestañas y energía
-  for (const btn of document.querySelectorAll(".tabs button")) {
+  const tabButtons = [...document.querySelectorAll(".tabs button")];
+  for (const btn of tabButtons) {
     btn.addEventListener("click", () => showTab(btn.dataset.tab));
+    // Flechas, Inicio y Fin recorren las pestañas (patrón de pestañas de WAI-ARIA).
+    btn.addEventListener("keydown", (ev) => {
+      const i = tabButtons.indexOf(btn);
+      const next = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: tabButtons.length - 1 }[ev.key];
+      if (next === undefined) return;
+      ev.preventDefault();
+      const target = tabButtons[(next + tabButtons.length) % tabButtons.length];
+      showTab(target.dataset.tab);
+      target.focus();
+    });
   }
+  window.addEventListener("popstate", () => showTab(HASH_TAB[location.hash.slice(1)] || "files", { fromHash: true }));
+  bindSplitter();
   $("btn-poweroff").addEventListener("click", () => powerAction("poweroff"));
   $("btn-reboot").addEventListener("click", () => powerAction("reboot"));
   $("btn-usb-refresh").addEventListener("click", loadUsb);
   bindDebugUI();
+}
+
+// --------------------------------------------------------- separador del log
+
+function bindSplitter() {
+  const col = document.querySelector(".col-right");
+  const bar = $("splitter");
+  const setHeight = (h) => {
+    const max = Math.max(120, col.clientHeight - 220);
+    const value = Math.round(Math.min(max, Math.max(90, h)));
+    col.style.setProperty("--log-h", value + "px");
+    bar.setAttribute("aria-valuenow", String(value));
+    return value;
+  };
+  const saved = prefs.get("logHeight", null);
+  if (saved) setHeight(saved);
+  bar.addEventListener("pointerdown", (ev) => {
+    ev.preventDefault();
+    bar.setPointerCapture(ev.pointerId);
+    bar.classList.add("dragging");
+    const bottom = $("log-panel").getBoundingClientRect().bottom;
+    const move = (e) => setHeight(bottom - e.clientY - 6);
+    const up = () => {
+      bar.classList.remove("dragging");
+      bar.removeEventListener("pointermove", move);
+      bar.removeEventListener("pointerup", up);
+      prefs.set("logHeight", $("log-panel").getBoundingClientRect().height);
+    };
+    bar.addEventListener("pointermove", move);
+    bar.addEventListener("pointerup", up);
+  });
+  bar.addEventListener("keydown", (ev) => {
+    const step = { ArrowUp: 24, ArrowDown: -24 }[ev.key];
+    if (!step) return;
+    ev.preventDefault();
+    prefs.set("logHeight", setHeight($("log-panel").getBoundingClientRect().height + step));
+  });
 }
 
 // ------------------------------------------------------------------ arranque
@@ -1677,7 +1779,8 @@ async function init() {
     const f = state.projects.flatMap((p) => p.files).find((x) => x.path === savedFile);
     if (f) { setFile(f); renderFiles(); }
   }
-  showTab(prefs.get("tab", "files"));
+  const fromUrl = HASH_TAB[location.hash.slice(1)];
+  showTab(fromUrl || prefs.get("tab", "files"), { fromHash: !!fromUrl });
 
   // La detección de OpenOCD/dfu-util corre en segundo plano al arrancar el servidor.
   setTimeout(async () => {

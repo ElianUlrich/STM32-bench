@@ -3,22 +3,55 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
   <title>Banco STM32 — Ingreso</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="style.css">
   <script src="login.js" defer></script>
 </head>
 <body class="login-body">
-  <form class="login-card" id="login-form">
-    <div class="brand">
-      <svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1.5"/><path d="M9 2v4M12 2v4M15 2v4M9 18v4M12 18v4M15 18v4M2 9h4M2 12h4M2 15h4M18 9h4M18 12h4M18 15h4"/></svg>
-      <span>Banco STM32</span>
-    </div>
-    <label class="field"><span>Usuario</span><input id="username" autocomplete="username" required autofocus></label>
-    <label class="field"><span>Contraseña</span><input id="password" type="password" autocomplete="current-password" required></label>
-    <button class="btn primary wide" type="submit">Ingresar</button>
-    <p id="login-error" class="note error-text" hidden></p>
-    <p class="note muted">Acceso solo a través de Tailscale.</p>
-  </form>
+  <svg class="sprite" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+    <symbol id="i-chip" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/><rect x="9.5" y="9.5" width="5" height="5" rx=".5"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"/></symbol>
+    <symbol id="i-zap" viewBox="0 0 24 24"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></symbol>
+    <symbol id="i-bug" viewBox="0 0 24 24"><rect x="8" y="7" width="8" height="12" rx="4"/><path d="M9.5 7a2.5 2.5 0 0 1 5 0M3 13h5M16 13h5M4 7.5l4 2M20 7.5l-4 2M4 19l4-2.5M20 19l-4-2.5M12 11v8"/></symbol>
+    <symbol id="i-terminal" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M13 15h4"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></symbol>
+  </svg>
+
+  <div class="login-wrap">
+    <section class="login-hero" aria-label="Acerca del banco">
+      <div class="brand">
+        <span class="brand-tile"><svg class="ic" aria-hidden="true"><use href="#i-chip"/></svg></span>
+        <span class="brand-text">
+          <span class="brand-name">Banco STM32</span>
+          <span class="brand-sub">Laboratorio remoto de microcontroladores</span>
+        </span>
+      </div>
+      <h1>Programá y depurá hardware real desde el navegador, estés donde estés.</h1>
+      <p>Un banco de laboratorio conectado a placas STM32, ESP32 y Arduino, accesible de forma segura desde cualquier PC.</p>
+      <ul class="features">
+        <li><svg class="ic" aria-hidden="true"><use href="#i-zap"/></svg>
+          <span><strong>Grabación verificada</strong>: ST-Link, USB DFU, esptool y avrdude, con control del chip conectado antes de escribir.</span></li>
+        <li><svg class="ic" aria-hidden="true"><use href="#i-bug"/></svg>
+          <span><strong>Depuración en vivo</strong>: breakpoints, paso a paso, variables y registros, sin instalar nada en la PC.</span></li>
+        <li><svg class="ic" aria-hidden="true"><use href="#i-terminal"/></svg>
+          <span><strong>Monitor serie y RTT</strong>: los mensajes del programa en tiempo real, incluso por el mismo ST-Link.</span></li>
+        <li><svg class="ic" aria-hidden="true"><use href="#i-lock"/></svg>
+          <span><strong>Acceso privado</strong>: red cifrada (Tailscale), usuario y contraseña; nada expuesto a internet.</span></li>
+      </ul>
+    </section>
+
+    <main class="login-side">
+      <form class="login-card" id="login-form">
+        <h2>Ingresar</h2>
+        <p class="lead">Usá el usuario que se configuró al instalar el banco.</p>
+        <label class="field"><span>Usuario</span><input id="username" autocomplete="username" required autofocus></label>
+        <label class="field"><span>Contraseña</span><input id="password" type="password" autocomplete="current-password" required></label>
+        <button class="btn primary wide" type="submit" id="login-submit">Ingresar</button>
+        <p id="login-error" class="note error-text" role="alert" hidden></p>
+        <p class="login-foot"><svg class="ic" aria-hidden="true"><use href="#i-lock"/></svg>Acceso sólo a través de Tailscale.</p>
+      </form>
+    </main>
+  </div>
 </body>
 </html>
