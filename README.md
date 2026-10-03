@@ -42,8 +42,8 @@ de programación y depuración remota de microcontroladores **STM32**, **ESP32/E
   hardware real.
 - ⏳ **Depurador en la web** (pestaña *Depurar*): hecho y probado con el simulador de GDB; falta
   compilar GDB 12 en la placa (`scripts/build_gdb.sh`, en curso) y probarlo con el H503.
-- ⏳ USB DFU del H503: el chip entra al bootloader pero la BeagleBoard no lo enumera (sospecha: cable
-  USB-C solo de carga o el puerto).
+- ✔ USB DFU del H503: la BeagleBoard no lo detectaba porque **el cable USB-C no llevaba datos**
+  (con otro cable aparece `0483:df11`). Falta grabar por DFU desde la web.
 - ✔ **Depuración remota con GDB probada** (30/09/2026): con el contador binario
   ([firmware/h503_leds](firmware/h503_leds/)) en el H503, desde `arm-none-eabi-gdb` en la PC por
   Tailscale: halt, leer y escribir variables, continue, Ctrl+C, breakpoints, desconexión y reconexión.
