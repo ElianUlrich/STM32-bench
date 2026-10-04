@@ -377,9 +377,22 @@ soporta; los que no, quedan deshabilitados con el motivo.
 
 - **ESP, qué `.bin` subir**: desde Arduino IDE, *Sketch → Exportar binario compilado* genera
   `sketch.ino.bin` (solo la aplicación: se graba en `0x10000`) y `sketch.ino.merged.bin` (bootloader
-  + particiones + app: se graba en `0x0`). La app reconoce cuál es y elige la dirección sola. Con
-  ESP-IDF, `esptool.py merge_bin` genera el combinado. El `.bin` se graba con
-  `--flash_mode/--flash_freq/--flash_size keep` para no tocar el encabezado del bootloader.
+  + particiones + app: se graba en `0x0`). La app reconoce cuál es y elige la dirección sola. El `.bin`
+  se graba con `--flash_mode/--flash_freq/--flash_size keep` para no tocar el encabezado del bootloader.
+- **Proyecto ESP-IDF (recomendado con ESP-IDF)**: en *Archivos*, arrastrá la **carpeta del proyecto**
+  (o tocá *elegí la carpeta*). La web lee `build/flasher_args.json` y sube **solo los `.bin` que lista**
+  (bootloader, tabla de particiones, programa y datos, si hay): unos KB o MB en vez de los cientos de MB
+  de `build/`. Antes de subir muestra cada archivo con su dirección, tamaño y fecha. Cada `.bin` queda
+  marcado con su dirección en la lista, y al grabar se elige **Sólo este archivo** (lo normal: el
+  programa) o **Todo el proyecto**, con el modo, la frecuencia y el tamaño de flash del manifiesto.
+  Una carpeta `build/` que llega por Syncthing funciona igual. Controles, al subir y otra vez al
+  grabar: el chip del manifiesto y de cada imagen tiene que ser el de la placa; rutas de la lista
+  blanca, solo `.bin` y nada cifrado; las imágenes no se pisan ni se salen de la flash; cada imagen cae
+  dentro de una partición (y el programa entra en la suya); y **ninguna toca una partición NVS**,
+  donde el programa guarda presets, ajustes y WiFi. Por eso no se usa un combinado en `0x0`: esptool
+  rellena los huecos con `0xFF` y borraría NVS. En un proyecto así tampoco se elige la dirección a mano.
+- **Cuidado con un `.bin` de ESP-IDF subido suelto**: sin `flasher_args.json` el banco lo grabaría en
+  `0x10000`, que en proyectos con particiones propias puede caer dentro de NVS. Subí la carpeta.
 - **Arduino, qué `.hex` subir**: *Sketch → Exportar binario compilado* genera `sketch.ino.hex` (sin
   bootloader, el que hay que usar) y `sketch.ino.with_bootloader.hex` (solo para ISP; por bootloader
   serie se rechaza porque pisa el bootloader).
@@ -893,3 +906,7 @@ Verificalo en la BeagleBoard:
     externo; permisos con la regla udev; que Reiniciar devuelva el dispositivo.
 22. **MAC fija**: que `stm32-bench-mac.service` corra antes de que la red tome la interfaz en la imagen
     rcn-ee (ifupdown/connman) y que la IP local se mantenga después de reiniciar.
+23. **Proyecto ESP-IDF desde la web** con el ESP32-P4 (Waveshare ESP32-P4-WIFI6-Touch-LCD-7B, CH343
+    → `/dev/ttyACM0`): arrastrar la carpeta en Chrome/Edge/Firefox, la confirmación del navegador al
+    elegir una carpeta con el botón, grabar solo el programa y todo el proyecto con esptool 4.12, y
+    que los presets en NVS sobrevivan.

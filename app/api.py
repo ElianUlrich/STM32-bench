@@ -3,12 +3,13 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from . import esp_project
 from . import files as fileops
 from . import system
 from .auth import LoginLimiter, check_credentials
@@ -81,9 +82,12 @@ async def config(request: Request, _: str = Depends(require_user)) -> Dict[str, 
 @router.get("/files")
 async def list_files(request: Request, _: str = Depends(require_user)) -> Dict[str, Any]:
     bench = get_bench(request)
-    projects = await asyncio.get_running_loop().run_in_executor(
-        None, fileops.scan_projects, bench.settings.projects_dir, bench.cfg.scan_max_depth,
-        bench.meta.all())
+    def scan():
+        found = fileops.scan_projects(bench.settings.projects_dir, bench.cfg.scan_max_depth, bench.meta.all())
+        esp_project.annotate(bench.settings.projects_dir, found)   # .bin de proyectos ESP-IDF
+        return found
+
+    projects = await asyncio.get_running_loop().run_in_executor(None, scan)
     return {"projects_dir": str(bench.settings.projects_dir), "projects": projects}
 
 
@@ -144,6 +148,47 @@ async def _upload_project_zip(bench: Bench, chip, project: str, filename: str, f
     elfs = [f"{saved.folder}/{rel}" for rel in ok if rel.lower().endswith(".elf")]
     return {"ok": True, "folder": saved.folder, "path": (elfs or [f"{saved.folder}/{r}" for r in ok])[0],
             "firmware": saved.firmware, "sources": saved.sources, "target": chip.id, "warnings": warnings}
+
+
+@router.post("/files/esp-project")
+async def upload_esp_project(request: Request, manifest: UploadFile = File(...),
+                             files: List[UploadFile] = File(...), paths: List[str] = Form(...),
+                             project: str = Form("general"), target: str = Form(...),
+                             _: str = Depends(require_user)) -> Dict[str, Any]:
+    """Proyecto ESP-IDF: flasher_args.json + exactamente los .bin que lista (la web
+    los elige de la carpeta build/). Se valida todo contra la placa antes de guardarlo."""
+    bench = get_bench(request)
+    chip = bench.chip(target)
+    if chip.esptool is None:
+        raise fileops.FileValidationError(f"{chip.name} no es una placa ESP: elegí la placa del proyecto")
+    m = esp_project.parse_manifest(await manifest.read(esp_project.MANIFEST_MAX_BYTES + 1))
+    if len(files) != len(paths):
+        raise fileops.FileValidationError("Cada archivo tiene que llegar con su ruta")
+    listed = {img.path for img in m.images}
+    missing = sorted(listed - set(paths))
+    unknown = sorted(set(paths) - listed)
+    if missing:
+        raise fileops.FileValidationError("Faltan archivos del proyecto: " + ", ".join(missing))
+    if unknown or len(set(paths)) != len(paths):
+        raise fileops.FileValidationError(
+            f"Archivos que no lista {esp_project.MANIFEST_NAME}: " + ", ".join(unknown or paths))
+    app = m.role("app")
+    folder = app.path.rsplit("/", 1)[-1][:-4] if app else "proyecto-esp"
+    max_bytes = bench.cfg.max_upload_mb * 1024 * 1024
+
+    def validator(tmp_dir):
+        esp_project.check(m, esp_project.reader(tmp_dir), chip.esptool)
+
+    saved = await asyncio.get_running_loop().run_in_executor(
+        None, lambda: fileops.save_file_set(
+            bench.settings.projects_dir, project, folder, [(p, f.file) for p, f in zip(paths, files)],
+            max_bytes, extra={esp_project.MANIFEST_NAME: esp_project.dump_manifest(m)}, validator=validator))
+    for rel in saved.firmware:
+        bench.meta.assign(rel, chip.id)
+    bench.bus.publish({"type": "files_changed"})
+    main = f"{saved.folder}/{app.path}" if app else saved.firmware[0]
+    return {"ok": True, "folder": saved.folder, "path": main, "firmware": saved.firmware,
+            "target": chip.id, "warnings": []}
 
 
 class TargetBody(BaseModel):
@@ -207,6 +252,7 @@ class JobBody(BaseModel):
     serial_port: Optional[str] = None
     leave: bool = True
     stop_gdb: bool = False
+    esp_scope: Optional[str] = None     # proyecto ESP-IDF: "file" (sólo el elegido) o "all"
 
 
 @router.post("/jobs", status_code=202)

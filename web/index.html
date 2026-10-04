@@ -129,6 +129,15 @@
         <h2 class="card-title"><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg>Firmware</h2>
         <div id="fw-selected" class="fw-selected empty">Elegí un archivo en la pestaña <em>Archivos</em></div>
         <p id="fw-target-warn" class="note warn-text" hidden></p>
+        <div class="field" id="esp-scope-field" hidden>
+          <label for="sel-esp-scope">Qué grabar (proyecto ESP-IDF)</label>
+          <select id="sel-esp-scope">
+            <option value="file">Sólo este archivo</option>
+            <option value="all">Todo el proyecto</option>
+          </select>
+          <small class="note">Las direcciones salen de <code>flasher_args.json</code>. Las particiones NVS
+            (presets, ajustes, WiFi) nunca se escriben.</small>
+        </div>
         <label class="field" id="addr-field" hidden>
           <span>Dirección de carga (.bin)</span>
           <input id="inp-address" type="text" spellcheck="false" autocomplete="off" placeholder="0x08000000">
@@ -205,10 +214,13 @@
         <div class="tab" id="tab-files" role="tabpanel" aria-labelledby="tabbtn-files">
           <div id="dropzone" class="dropzone" tabindex="0" aria-label="Subir archivos: arrastrá o presioná Enter para elegir">
             <input type="file" id="file-input" accept=".elf,.hex,.bin,.zip" multiple hidden>
+            <input type="file" id="dir-input" webkitdirectory hidden>
             <span class="drop-icon" aria-hidden="true"><svg class="ic"><use href="#i-upload"/></svg></span>
             <div class="drop-text">
               <strong>Arrastrá el firmware acá</strong> o <button type="button" class="link" id="btn-pick">elegí archivos</button>
               <small class="muted">.elf, .hex, .bin o un proyecto .zip con las fuentes (para depurar)</small>
+              <small class="muted">ESP-IDF: arrastrá la carpeta del proyecto o
+                <button type="button" class="link" id="btn-pick-dir">elegí la carpeta</button>; se suben sólo los .bin que hay que grabar</small>
             </div>
             <div class="drop-opts">
               <label class="inline">Placa <select id="sel-upload-target" class="upload-target"></select></label>

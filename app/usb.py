@@ -38,7 +38,7 @@ KNOWN = {
     "0483:3752": "ST-Link V2-1", "0483:3753": "ST-Link V3", "0483:3754": "ST-Link V3",
     "0483:df11": "STM32 en modo DFU (bootloader de ST)",
     "0483:5740": "STM32 como puerto serie (CDC)",
-    "10c4:ea60": "CP210x (USB-serie)", "1a86:7523": "CH340 (USB-serie)", "1a86:55d4": "CH9102 (USB-serie)",
+    "10c4:ea60": "CP210x (USB-serie)", "1a86:7523": "CH340 (USB-serie)", "1a86:55d4": "CH9102 (USB-serie)", "1a86:55d3": "CH343 (USB-serie)",
     "0403:6001": "FT232 (USB-serie)", "0403:6010": "FT2232", "0403:6015": "FT-X (USB-serie)",
     "303a:1001": "ESP32-S3/C3/C6 (USB-JTAG/serie)", "303a:0002": "ESP32-S2 (USB)",
     "16c0:05dc": "USBasp (programador AVR)", "1781:0c9f": "USBtiny (programador AVR)",

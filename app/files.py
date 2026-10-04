@@ -337,6 +337,58 @@ def save_project_zip(projects_dir: Path, project: str, filename: str, stream: Bi
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
+def save_file_set(projects_dir: Path, project: str, folder: str, items: List[tuple], max_bytes: int,
+                  extra: Optional[Dict[str, bytes]] = None,
+                  validator: Optional[Callable[[Path], None]] = None) -> SavedProject:
+    """Guarda varios binarios con sus rutas relativas en _subidos/<proyecto>/<carpeta>/.
+
+    `items` = [(ruta relativa con "/", stream)]. `extra` son archivos chicos que
+    genera el banco (p. ej. un manifiesto) y van en la raíz de la carpeta.
+    `validator` recibe la carpeta temporal completa antes de publicarla. Si la
+    carpeta ya existía, se reemplaza entera (como al subir un .zip).
+    """
+    project = validate_project_name(project)
+    if not is_safe_component(folder):
+        raise FileValidationError(f"Nombre de carpeta no permitido: '{folder}'")
+    target_dir = projects_dir / UPLOADS_DIRNAME / project
+    target_dir.mkdir(parents=True, exist_ok=True)
+    root_real = Path(os.path.realpath(projects_dir))
+    if not _is_within(Path(os.path.realpath(target_dir)), root_real):
+        raise FileValidationError("El directorio de destino sale del directorio de proyectos")
+
+    tmp_dir = target_dir / f".upload-{secrets.token_hex(8)}.d"
+    try:
+        written: List[str] = []
+        for rel, stream in items:
+            parts = rel.split("/") if isinstance(rel, str) else []
+            if (not parts or rel in written or "\\" in rel
+                    or any(p in (".", "..") or not is_safe_component(p) for p in parts)):
+                raise FileValidationError(f"Ruta no permitida: '{rel}'")
+            validate_filename(parts[-1])
+            dest = tmp_dir.joinpath(*parts)
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            size = _receive(stream, dest, max_bytes)
+            check_content(file_kind(dest), dest.read_bytes()[:64], size)
+            ensure_tcl_safe(target_dir / folder / Path(*parts))
+            written.append(rel)
+        for name, data in (extra or {}).items():
+            if not is_safe_component(name) or not name.endswith(".json"):
+                raise FileValidationError(f"Nombre no permitido: '{name}'")
+            tmp_dir.mkdir(parents=True, exist_ok=True)
+            (tmp_dir / name).write_bytes(data)
+        if validator is not None:
+            validator(tmp_dir)
+        final = target_dir / folder
+        if final.exists():
+            shutil.rmtree(final)
+        os.replace(tmp_dir, final)
+        folder_rel = final.relative_to(projects_dir).as_posix()
+        return SavedProject(folder=folder_rel, firmware=sorted(f"{folder_rel}/{rel}" for rel in written))
+    finally:
+        if tmp_dir.exists():
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
 def delete_upload(projects_dir: Path, rel_path: str) -> None:
     """Borra un archivo subido. Solo se permite dentro de _subidos/."""
     path = resolve_in_root(projects_dir, rel_path)

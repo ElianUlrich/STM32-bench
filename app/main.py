@@ -39,6 +39,10 @@ SECURITY_HEADERS = [
 ]
 
 
+# Rutas que reciben firmware: límite de uploads.max_size_mb (+1 MB de margen).
+UPLOAD_PATHS = ("/api/files/upload", "/api/files/esp-project")
+
+
 class GuardMiddleware:
     """Middleware ASGI de seguridad (va por fuera de todo lo demás):
 
@@ -68,7 +72,7 @@ class GuardMiddleware:
             if headers.get(b"x-bench") != b"1":
                 return await _plain(send, 403, "Falta el header X-Bench")
             # Corta subidas demasiado grandes antes de recibir el cuerpo.
-            limit = self.max_upload_bytes if path == "/api/files/upload" else 256 * 1024
+            limit = self.max_upload_bytes if path in UPLOAD_PATHS else 256 * 1024
             try:
                 length = int(headers.get(b"content-length", b"0"))
             except ValueError:

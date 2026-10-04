@@ -63,6 +63,7 @@ class JobRequest:
     serial_port: Optional[str] = None
     leave: bool = True
     stop_gdb: bool = False
+    esp_scope: Optional[str] = None     # proyecto ESP-IDF: "file" (sólo el elegido) o "all"
 
 
 def parse_address(text: Optional[str]) -> Optional[int]:
@@ -253,7 +254,8 @@ class Bench:
                 f"Este archivo es para {self.chip_name(assigned)}, no para {chip.name}. "
                 "Elegí esa placa o reasigná el archivo.")
         try:
-            return check_file_for_chip(firmware, chip, esp_address=esp_address)
+            return check_file_for_chip(firmware, chip, esp_address=esp_address,
+                                       projects_dir=self.settings.projects_dir)
         except FileValidationError as exc:
             raise RequestError(str(exc))
 
@@ -262,7 +264,7 @@ class Bench:
         chip = self.chip(target)
         try:
             firmware = resolve_firmware(self.settings.projects_dir, rel_path)
-            compat = check_file_for_chip(firmware, chip)
+            compat = check_file_for_chip(firmware, chip, projects_dir=self.settings.projects_dir)
         except FileValidationError as exc:
             raise RequestError(str(exc))
         self.meta.assign(rel_path, chip.id)
@@ -479,8 +481,21 @@ class Bench:
         action = req.action
         cmd = self.esptool_cmd
         address = compat.esp.address if (compat is not None and compat.esp is not None) else None
+        project = compat.esp_project if compat is not None else None
+        scope = req.esp_scope or "file"
+        if scope not in ("file", "all") or (scope == "all" and project is None):
+            raise RequestError("Grabar todo el proyecto sólo se puede con un proyecto ESP-IDF (flasher_args.json)")
+        pairs: List[Tuple[int, Path]] = []
+        if project is not None:
+            folder, manifest, image = project
+            chosen = manifest.images if scope == "all" else (image,)
+            pairs = [(i.offset, folder.joinpath(*i.path.split("/"))) for i in chosen]
         try:
-            if action == base.FLASH:
+            if project is not None and action in (base.FLASH, base.VERIFY):
+                settings = (manifest.flash_mode, manifest.flash_freq, manifest.flash_size)
+                argv = (esp_cmd.write_files_args(cmd, params, port, pairs, *settings) if action == base.FLASH
+                        else esp_cmd.verify_files_args(cmd, params, port, pairs))
+            elif action == base.FLASH:
                 argv = esp_cmd.flash_args(cmd, params, port, firmware, address)
             elif action == base.VERIFY:
                 argv = esp_cmd.verify_args(cmd, params, port, firmware, address)
@@ -497,7 +512,11 @@ class Bench:
         desc = f"{base.ACTION_LABELS[action]} {chip.name} por esptool ({port})"
         if rel:
             desc += f" — {Path(rel).name}"
-        if address is not None:
+        if pairs and action in (base.FLASH, base.VERIFY):
+            if scope == "all":
+                desc += f" (proyecto completo, {len(pairs)} archivos)"
+            desc += " @ " + ", ".join(f"0x{a:X}" for a, _ in pairs)
+        elif address is not None:
             desc += f" @ 0x{address:X}"
         job = new_job(action, "esptool", desc, chip=chip.id, file=rel)
         timeout = self.cfg.esptool_timeout_s
@@ -507,7 +526,10 @@ class Bench:
         kind = compat.esp.kind if (compat is not None and compat.esp is not None) else None
 
         async def fn(ctx: JobContext) -> str:
-            if kind:
+            if pairs and action in (base.FLASH, base.VERIFY):
+                for a, path in pairs:
+                    ctx.log(f"0x{a:06X}  {path.relative_to(folder).as_posix()}")
+            elif kind:
                 ctx.log(f"Imagen {kind}: se graba en 0x{address:X}")
             await self._run_releasing_port(
                 ctx, port, lambda: ctx.run(argv, source="esptool", timeout_s=timeout))

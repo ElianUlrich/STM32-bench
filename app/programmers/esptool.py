@@ -15,7 +15,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional, Sequence
+from typing import List, Optional, Sequence, Tuple
 
 from ..chips import ESP_CHIPS, EsptoolParams
 
@@ -119,6 +119,36 @@ def flash_args(command: Sequence[str], params: EsptoolParams, port: str, firmwar
 
 def verify_args(command: Sequence[str], params: EsptoolParams, port: str, firmware: Path, address: int) -> List[str]:
     return _base(command, params, port) + ["verify_flash", f"0x{address:X}", str(firmware)]
+
+
+FLASH_SETTING_RE = re.compile(r"^(qio|qout|dio|dout|opi|keep|detect|[0-9]{2,3}m|[0-9]{1,3}MB)$")
+
+
+def _pairs(pairs: Sequence[Tuple[int, Path]]) -> List[str]:
+    if not pairs:
+        raise EspImageError("No hay archivos para grabar")
+    out: List[str] = []
+    for address, path in pairs:
+        out += [f"0x{address:X}", str(path)]
+    return out
+
+
+def write_files_args(command: Sequence[str], params: EsptoolParams, port: str,
+                     pairs: Sequence[Tuple[int, Path]], flash_mode: str = "keep",
+                     flash_freq: str = "keep", flash_size: str = "keep") -> List[str]:
+    """Varias imágenes en una sola pasada (proyecto ESP-IDF), con los parámetros de flash
+    de flasher_args.json. esptool verifica el hash de cada una y resetea al final."""
+    for value in (flash_mode, flash_freq, flash_size):
+        if not FLASH_SETTING_RE.fullmatch(value):
+            raise EspImageError(f"Parámetro de flash inválido: '{value}'")
+    return _base(command, params, port) + [
+        "write_flash", "--flash_mode", flash_mode, "--flash_freq", flash_freq, "--flash_size", flash_size,
+    ] + _pairs(pairs)
+
+
+def verify_files_args(command: Sequence[str], params: EsptoolParams, port: str,
+                      pairs: Sequence[Tuple[int, Path]]) -> List[str]:
+    return _base(command, params, port) + ["verify_flash"] + _pairs(pairs)
 
 
 def erase_args(command: Sequence[str], params: EsptoolParams, port: str) -> List[str]:

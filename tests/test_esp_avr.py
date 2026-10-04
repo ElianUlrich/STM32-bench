@@ -179,3 +179,18 @@ def test_repo_catalog_has_all_families():
     for cid in ("esp32", "esp32-s3", "esp32-c3", "esp8266", "arduino-uno", "arduino-mega2560", "arduino-leonardo"):
         assert cid in chips, cid
     assert all(c.swd.idcode is not None for c in chips.values() if c.swd)
+
+
+def test_esp_write_several_files_with_flash_settings():
+    p4 = EsptoolParams(chip="esp32p4", baud=921600, app_address=0x10000)
+    pairs = [(0x2000, Path("/p/bootloader.bin")), (0xA000, Path("/p/pt.bin")), (0x20000, Path("/p/app.bin"))]
+    a = esp.write_files_args(CMD, p4, "/dev/ttyACM0", pairs, "dio", "40m", "32MB")
+    assert a[11:] == ["write_flash", "--flash_mode", "dio", "--flash_freq", "40m", "--flash_size", "32MB",
+                      "0x2000", str(Path("/p/bootloader.bin")), "0xA000", str(Path("/p/pt.bin")),
+                      "0x20000", str(Path("/p/app.bin"))]
+    assert esp.verify_files_args(CMD, p4, "/dev/ttyACM0", pairs[2:])[-3:] == [
+        "verify_flash", "0x20000", str(Path("/p/app.bin"))]
+    with pytest.raises(esp.EspImageError):
+        esp.write_files_args(CMD, p4, "/dev/ttyACM0", pairs, "dio; reboot", "40m", "32MB")
+    with pytest.raises(esp.EspImageError):
+        esp.write_files_args(CMD, p4, "/dev/ttyACM0", [])

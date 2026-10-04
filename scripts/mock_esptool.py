@@ -24,6 +24,20 @@ def opt(argv, name, default=None):
     return argv[argv.index(name) + 1] if name in argv and argv.index(name) + 1 < len(argv) else default
 
 
+def file_pairs(argv, cmd):
+    """Pares (dirección, archivo) después de write_flash/verify_flash, salteando opciones."""
+    rest = argv[argv.index(cmd) + 1:]
+    args = []
+    i = 0
+    while i < len(rest):
+        if rest[i].startswith("--"):
+            i += 2 if rest[i] in ("--flash_mode", "--flash_freq", "--flash_size") else 1
+            continue
+        args.append(rest[i])
+        i += 1
+    return [(args[k], args[k + 1]) for k in range(0, len(args) - 1, 2)]
+
+
 def main(argv):
     if argv[:1] == ["version"] or argv[-1:] == ["version"]:
         out("esptool.py v4.12.0 (simulado)", 0)
@@ -57,26 +71,26 @@ def main(argv):
         out(f"Changing baud rate to {baud}")
         out("Changed.")
     if cmd == "write_flash":
-        addr, path = argv[-2], argv[-1]
-        size = os.path.getsize(path)
         out("Configuring flash size...")
-        out(f"Flash will be erased from {int(addr, 0):#010x} to {int(addr, 0) + size - 1:#010x}...")
-        out(f"Compressed {size} bytes to {max(size // 2, 1)}...")
-        for pct in (25, 50, 75, 100):
-            out(f"Writing at {int(addr, 0) + size * pct // 100:#010x}... ({pct} %)", 0.3)
-        out(f"Wrote {size} bytes ({max(size // 2, 1)} compressed) at {int(addr, 0):#010x} in 1.2 seconds")
-        if "falla" in os.path.basename(path):
-            out("A fatal error occurred: MD5 of file does not match data in flash!")
-            return 2
-        out("Hash of data verified.")
+        for addr, path in file_pairs(argv, cmd):
+            size = os.path.getsize(path)
+            out(f"Flash will be erased from {int(addr, 0):#010x} to {int(addr, 0) + size - 1:#010x}...")
+            out(f"Compressed {size} bytes to {max(size // 2, 1)}...")
+            for pct in (25, 50, 75, 100):
+                out(f"Writing at {int(addr, 0) + size * pct // 100:#010x}... ({pct} %)", 0.15)
+            out(f"Wrote {size} bytes ({max(size // 2, 1)} compressed) at {int(addr, 0):#010x} in 1.2 seconds")
+            if "falla" in os.path.basename(path):
+                out("A fatal error occurred: MD5 of file does not match data in flash!")
+                return 2
+            out("Hash of data verified.")
     elif cmd == "verify_flash":
-        addr, path = argv[-2], argv[-1]
-        size = os.path.getsize(path)
-        out(f"Verifying {size:#x} ({size}) bytes @ {int(addr, 0):#010x} in flash against {path}...", 0.5)
-        if "falla" in os.path.basename(path):
-            out("-- verify FAILED (digest mismatch)")
-            return 2
-        out("-- verify OK (digest matched)")
+        for addr, path in file_pairs(argv, cmd):
+            size = os.path.getsize(path)
+            out(f"Verifying {size:#x} ({size}) bytes @ {int(addr, 0):#010x} in flash against {path}...", 0.3)
+            if "falla" in os.path.basename(path):
+                out("-- verify FAILED (digest mismatch)")
+                return 2
+            out("-- verify OK (digest matched)")
     elif cmd == "erase_flash":
         out("Erasing flash (this may take a while)...", 1.5)
         out("Chip erase completed successfully in 3.1s")

@@ -7,8 +7,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
+from . import esp_project
 from .chips import Chip
 from .convert import ConversionError, convert_to_bin
 from .files import FileValidationError
@@ -22,6 +23,8 @@ ELF_MACHINES = {40: "ARM", 83: "AVR", 94: "Xtensa (ESP32)", 243: "RISC-V"}
 class Compat:
     warnings: List[str] = field(default_factory=list)
     esp: Optional[EspImage] = None
+    # Si el .bin es parte de un proyecto ESP-IDF: (carpeta, manifiesto, imagen).
+    esp_project: Optional[Tuple[Path, "esp_project.Manifest", "esp_project.Image"]] = None
 
 
 def elf_machine(path: Path) -> Optional[int]:
@@ -32,8 +35,13 @@ def elf_machine(path: Path) -> Optional[int]:
 
 
 def check_file_for_chip(path: Path, chip: Chip, filename: Optional[str] = None,
-                        esp_address: Optional[int] = None) -> Compat:
-    """Lanza FileValidationError si el archivo no corresponde a la placa."""
+                        esp_address: Optional[int] = None, projects_dir: Optional[Path] = None) -> Compat:
+    """Lanza FileValidationError si el archivo no corresponde a la placa.
+
+    Con `projects_dir`, un .bin que es parte de un proyecto ESP-IDF (hay un
+    flasher_args.json que lo lista) se valida con todo el proyecto y va en la
+    dirección que dice el manifiesto.
+    """
     name = filename or path.name
     ext = Path(name).suffix.lower()
     if ext not in chip.extensions():
@@ -61,6 +69,17 @@ def check_file_for_chip(path: Path, chip: Chip, filename: Optional[str] = None,
         return result
 
     if chip.esptool:
+        found = esp_project.find(projects_dir, path) if projects_dir is not None else None
+        if found:
+            folder, manifest, image = found
+            esp_project.check(manifest, esp_project.reader(folder), chip.esptool)
+            if esp_address is not None and esp_address != image.offset:
+                raise FileValidationError(
+                    f"{image.path} va en 0x{image.offset:X} según {esp_project.MANIFEST_NAME}: "
+                    "en un proyecto ESP-IDF no se elige la dirección a mano.")
+            result.esp = EspImage(address=image.offset, kind=image.label, chip_id=chip.esptool.image_chip_id)
+            result.esp_project = found
+            return result
         try:
             result.esp = analyze_bin(path.read_bytes(), chip.esptool, esp_address)
         except EspImageError as exc:

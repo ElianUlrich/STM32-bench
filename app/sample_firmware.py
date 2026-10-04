@@ -5,9 +5,11 @@ segmento .text en flash y segmento .data con VMA en RAM y LMA en flash).
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import struct
 from pathlib import Path
-from typing import Iterable, List, Tuple
+from typing import Dict, Iterable, List, Sequence, Tuple
 
 from .settings import UPLOADS_DIRNAME
 
@@ -97,6 +99,50 @@ def esp_merged(chip_id: int, bootloader_offset: int, app_size: int = 4096) -> by
     return bytes(image) + esp_image(chip_id, app_size)
 
 
+# Tabla de particiones de TONE MASTER (pedal con ESP32-P4): NVS grande antes del programa.
+IDF_PARTITIONS = (("nvs", 1, 2, 0xB000, 0x10000), ("phy_init", 1, 1, 0x1B000, 0x1000),
+                  ("factory", 0, 0, 0x20000, 0x200000))
+
+
+def esp_partition_table(parts: Sequence[Tuple[str, int, int, int, int]] = IDF_PARTITIONS) -> bytes:
+    """partition-table.bin como lo genera ESP-IDF: entradas de 32 bytes + MD5, relleno a 0xC00."""
+    out = bytearray()
+    for name, ptype, subtype, offset, size in parts:
+        out += (b"\xaa\x50" + bytes([ptype, subtype]) + struct.pack("<II", offset, size)
+                + name.encode().ljust(16, b"\0") + struct.pack("<I", 0))
+    out += b"\xeb\xeb" + b"\xff" * 14 + hashlib.md5(bytes(out)).digest()
+    return bytes(out) + b"\xff" * (0xC00 - len(out))
+
+
+def esp_idf_build(name: str = "demo-idf", chip: str = "esp32p4", chip_id: int = 18,
+                  bootloader: int = 0x2000, table: int = 0xA000, app: int = 0x20000,
+                  app_size: int = 8192, parts=IDF_PARTITIONS,
+                  extra: Sequence[Tuple[int, str, bytes]] = ()) -> Dict[str, bytes]:
+    """Carpeta build/ de ESP-IDF: flasher_args.json + los .bin que lista (ruta -> contenido)."""
+    files = {
+        "bootloader/bootloader.bin": esp_image(chip_id, 0x5000, entry=0x4FF00000),
+        "partition_table/partition-table.bin": esp_partition_table(parts),
+        f"{name}.bin": esp_image(chip_id, app_size),
+    }
+    flash_files = {hex(bootloader): "bootloader/bootloader.bin", hex(app): f"{name}.bin",
+                   hex(table): "partition_table/partition-table.bin"}
+    for offset, path, data in extra:
+        files[path] = data
+        flash_files[hex(offset)] = path
+    manifest = {
+        "write_flash_args": ["--flash_mode", "dio", "--flash_size", "32MB", "--flash_freq", "40m"],
+        "flash_settings": {"flash_mode": "dio", "flash_size": "32MB", "flash_freq": "40m"},
+        "flash_files": flash_files,
+        "bootloader": {"offset": hex(bootloader), "file": "bootloader/bootloader.bin", "encrypted": "false"},
+        "app": {"offset": hex(app), "file": f"{name}.bin", "encrypted": "false"},
+        "partition-table": {"offset": hex(table), "file": "partition_table/partition-table.bin",
+                            "encrypted": "false"},
+        "extra_esptool_args": {"after": "hard_reset", "before": "default_reset", "stub": True, "chip": chip},
+    }
+    files["flasher_args.json"] = json.dumps(manifest, indent=4).encode()
+    return files
+
+
 def avr_hex(size: int = 1024) -> bytes:
     return to_ihex([(0, bytes((i * 5 + 1) & 0xFF for i in range(size)))]).encode()
 
@@ -112,6 +158,7 @@ DEMO_TARGETS = {
     "esp32-blink/build/esp32-blink.ino.bin": "esp32",
     "esp32-blink/build/esp32-blink.ino.merged.bin": "esp32",
     "esp32s3-demo/s3-demo.bin": "esp32-s3",
+    "pedal-p4/build/pedal-p4.bin": "esp32-p4",
     "arduino-blink/Blink.ino.hex": "arduino-uno",
     "arduino-leonardo/Teclado.ino.hex": "arduino-leonardo",
     "h503-contador/build/03_contador_binario.elf": "stm32h503cb",
@@ -170,6 +217,11 @@ def seed_projects(projects_dir: Path) -> None:
     s3 = projects_dir / "esp32s3-demo"
     s3.mkdir()
     (s3 / "s3-demo.bin").write_bytes(esp_image(9, 8192))
+    # Proyecto ESP-IDF (ESP32-P4, con NVS antes del programa) como llega por Syncthing.
+    for rel, data in esp_idf_build(name="pedal-p4").items():
+        dest = projects_dir / "pedal-p4" / "build" / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(data)
     ard = projects_dir / "arduino-blink"
     ard.mkdir()
     (ard / "Blink.ino.hex").write_bytes(avr_hex(924))

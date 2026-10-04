@@ -336,8 +336,16 @@ function updateMethodUI() {
   $("method-reason").textContent = reason;
 
   // Dirección para .bin (STM32: base de flash; ESP: se detecta sola).
-  const isBin = state.file && state.file.kind === "bin" && ["swd", "dfu", "esptool"].includes(m);
+  const espProject = !!(state.file && state.file.esp && m === "esptool");
+  const isBin = state.file && state.file.kind === "bin" && ["swd", "dfu", "esptool"].includes(m) && !espProject;
   $("addr-field").hidden = !isBin;
+  $("esp-scope-field").hidden = !espProject;
+  if (espProject) {
+    const esp = state.file.esp;
+    const opts = $("sel-esp-scope").options;
+    opts[0].textContent = `Sólo este archivo (${ESP_ROLES[esp.role] || esp.role} @ ${esp.address})`;
+    opts[1].textContent = `Todo el proyecto (${esp.files} archivos)`;
+  }
   if (chip) {
     $("inp-address").placeholder = m === "esptool" ? "automática (0x10000 aplicación · 0x0 combinada)"
       : (m === "dfu" && chip.dfu ? chip.dfu.address : (chip.flash_base || ""));
@@ -503,6 +511,8 @@ function renderFiles() {
         // Botón: el archivo se elige también con el teclado (Tab + Enter).
         el("button", { class: "name", type: "button", disabled: !f.usable, "aria-pressed": selected ? "true" : "false",
           "aria-label": `Elegir ${f.path}`, onclick: (ev) => { ev.stopPropagation(); if (f.usable) { setFile(f); renderFiles(); } } },
+          f.esp ? el("span", { class: "esp-addr", title: `Proyecto ESP-IDF: ${ESP_ROLES[f.esp.role] || f.esp.role}` },
+            f.esp.address) : null,
           f.name, f.subdir ? el("span", { class: "sub" }, "  " + f.subdir) : null),
         target,
         el("span", { class: "size" }, fmtSize(f.size)),
@@ -536,6 +546,7 @@ async function assignTarget(file, target) {
 }
 
 function setFile(file) {
+  if (!state.file || !file || state.file.path !== file.path) $("sel-esp-scope").value = "file";
   state.file = file;
   if (state.tab === "debug" && !dbgActive()) loadDebugSources();
   const box = $("fw-selected");
@@ -574,18 +585,22 @@ async function deleteFile(file) {
 }
 
 function uploadOne(file, project, target) {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("project", project);
+  form.append("target", target);
+  return postForm("/api/files/upload", form, file.name);
+}
+
+function postForm(url, form, label) {
   // XMLHttpRequest para poder mostrar el progreso de la subida.
   return new Promise((resolve, reject) => {
-    const form = new FormData();
-    form.append("file", file);
-    form.append("project", project);
-    form.append("target", target);
     const xhr = new XMLHttpRequest();
-    xhr.open("POST", "/api/files/upload");
+    xhr.open("POST", url);
     xhr.setRequestHeader("X-Bench", "1");
     xhr.upload.onprogress = (ev) => {
       if (ev.lengthComputable) {
-        $("upload-status").textContent = `Subiendo ${file.name}… ${Math.round(ev.loaded / ev.total * 100)}%`;
+        $("upload-status").textContent = `Subiendo ${label}… ${Math.round(ev.loaded / ev.total * 100)}%`;
       }
     };
     xhr.onload = () => {
@@ -638,10 +653,103 @@ async function uploadFiles(fileList) {
   }
 }
 
+// --------------------------------------------------------- proyecto ESP-IDF
+// `idf.py build` deja en build/flasher_args.json qué .bin grabar y dónde. De la
+// carpeta del proyecto (cientos de MB) se suben sólo esos archivos.
+
+const ESP_MANIFEST = "flasher_args.json";
+const ESP_ROLES = { bootloader: "gestor de arranque", "partition-table": "tabla de particiones",
+  app: "programa", data: "datos" };
+
+function entryFile(dir, path) {
+  return new Promise((resolve) => dir.getFile(path, {}, (e) => e.file(resolve, () => resolve(null)), () => resolve(null)));
+}
+
+// Carpeta arrastrada: se va directo a build/flasher_args.json sin recorrer todo.
+async function espFromDirEntry(dir) {
+  for (const base of ["", "build/"]) {
+    const manifest = await entryFile(dir, base + ESP_MANIFEST);
+    if (manifest) return { name: dir.name, manifest, get: (rel) => entryFile(dir, base + rel) };
+  }
+  return null;
+}
+
+// Carpeta elegida con el botón: el navegador da la lista de todos los archivos (no los sube).
+function espFromFileList(files) {
+  const byPath = new Map(files.map((f) => [f.webkitRelativePath, f]));
+  const depth = (f) => f.webkitRelativePath.split("/").length;
+  const manifest = files.filter((f) => f.name === ESP_MANIFEST).sort((a, b) => depth(a) - depth(b))[0];
+  if (!manifest) return null;
+  const base = manifest.webkitRelativePath.slice(0, -ESP_MANIFEST.length);
+  return { name: manifest.webkitRelativePath.split("/")[0], manifest, get: async (rel) => byPath.get(base + rel) || null };
+}
+
+async function uploadEspProject(src) {
+  if (!src) {
+    toast("Esa carpeta no tiene build/flasher_args.json: compilá el proyecto (idf.py build) y probá de nuevo", true);
+    return;
+  }
+  const target = $("sel-upload-target").value;
+  const chip = chipById(target);
+  if (!chip || !chip.esptool) {
+    toast("Elegí la placa ESP del proyecto (Placa) antes de subirlo", true);
+    $("sel-upload-target").focus();
+    return;
+  }
+  let doc;
+  try { doc = JSON.parse(await src.manifest.text()); } catch (e) { doc = null; }
+  if (!doc || typeof doc.flash_files !== "object") {
+    toast(`${ESP_MANIFEST} no es válido: volvé a compilar el proyecto`, true);
+    return;
+  }
+  const items = [];
+  for (const [addr, rel] of Object.entries(doc.flash_files)) {
+    const file = await src.get(rel);
+    if (!file) { toast(`Falta ${rel} en la carpeta build: compilá el proyecto (idf.py build)`, true); return; }
+    items.push({ addr: parseInt(addr, 16), rel, file });
+  }
+  items.sort((a, b) => a.addr - b.addr);
+  const espChip = (doc.extra_esptool_args || {}).chip || "?";
+  if (chip.esptool.chip !== espChip) {
+    toast(`El proyecto es para ${espChip} y elegiste ${chip.name}: elegí la placa correcta`, true);
+    return;
+  }
+  const total = items.reduce((n, i) => n + i.file.size, 0);
+  const maxBytes = state.config.uploads.max_size_mb * 1024 * 1024;
+  const big = items.find((i) => i.file.size > maxBytes);
+  if (big) { toast(`${big.rel}: supera ${state.config.uploads.max_size_mb} MB`, true); return; }
+  const roleOf = (rel) => ["bootloader", "app", "partition-table"].find((r) => doc[r] && doc[r].file === rel) || "data";
+  const lines = items.map((i) => `0x${i.addr.toString(16).toUpperCase().padStart(5, "0")}  ${i.rel}  `
+    + `(${ESP_ROLES[roleOf(i.rel)]}, ${fmtSize(i.file.size)}, ${fmtDate(i.file.lastModified / 1000)})`);
+  const ok = await confirmDialog(`Proyecto ESP-IDF: ${src.name}`,
+    `Para ${chip.name}. Se suben sólo ${items.length} archivos (${fmtSize(total)}) de la carpeta build:\n\n`
+    + lines.join("\n") + "\n\nRevisá la fecha del programa: si es vieja, falta compilar.", "Subir", false);
+  if (!ok) return;
+  const form = new FormData();
+  form.append("manifest", src.manifest, ESP_MANIFEST);
+  for (const i of items) {
+    form.append("files", i.file, i.rel.split("/").pop());
+    form.append("paths", i.rel);
+  }
+  form.append("project", $("inp-project").value.trim() || "general");
+  form.append("target", target);
+  try {
+    const res = await postForm("/api/files/esp-project", form, `proyecto ${src.name}`);
+    $("upload-status").textContent = `Proyecto ${src.name} → ${res.folder}: ${res.firmware.length} archivos para ${chip.name}`;
+    await loadFiles();
+    const f = state.projects.flatMap((p) => p.files).find((x) => x.path === res.path);
+    if (f) { setFile(f); renderFiles(); }
+  } catch (e) {
+    $("upload-status").textContent = "";
+    toast(`${src.name}: ${e.message}`, true);
+  }
+}
+
 // ------------------------------------------------------------------ acciones
 
 const ACTION_CONFIRM = {
-  erase: (chip) => ["Borrar flash completa", `Se borra TODA la flash de ${chip.name}. ¿Continuar?`, "Borrar", true],
+  erase: (chip) => ["Borrar flash completa", `Se borra TODA la flash de ${chip.name}`
+    + (chip.esptool ? ", incluidos los datos guardados (NVS: presets, ajustes, WiFi)" : "") + ". ¿Continuar?", "Borrar", true],
 };
 
 async function runAction(action, extra) {
@@ -664,7 +772,8 @@ async function runAction(action, extra) {
   }
   if (FILE_ACTIONS.includes(action)) {
     body.file = state.file.path;
-    if (state.file.kind === "bin") body.address = $("inp-address").value.trim() || null;
+    if (state.file.esp && state.method === "esptool") body.esp_scope = $("sel-esp-scope").value;
+    else if (state.file.kind === "bin") body.address = $("inp-address").value.trim() || null;
   }
   Object.assign(body, extra);
   try {
@@ -1639,9 +1748,23 @@ function bindUI() {
     if (ev.target === drop && (ev.key === "Enter" || ev.key === " ")) { ev.preventDefault(); $("file-input").click(); }
   });
   $("file-input").addEventListener("change", (ev) => { uploadFiles([...ev.target.files]); ev.target.value = ""; });
+  $("btn-pick-dir").addEventListener("click", (ev) => { ev.stopPropagation(); $("dir-input").click(); });
+  $("dir-input").addEventListener("change", (ev) => {
+    const files = [...ev.target.files];
+    ev.target.value = "";
+    if (files.length) uploadEspProject(espFromFileList(files));
+  });
   ["dragenter", "dragover"].forEach((t) => drop.addEventListener(t, (ev) => { ev.preventDefault(); drop.classList.add("over"); }));
   ["dragleave", "drop"].forEach((t) => drop.addEventListener(t, () => drop.classList.remove("over")));
-  drop.addEventListener("drop", (ev) => { ev.preventDefault(); uploadFiles([...ev.dataTransfer.files]); });
+  drop.addEventListener("drop", (ev) => {
+    ev.preventDefault();
+    // Hay que leer todo antes del primer await: después el navegador vacía dataTransfer.
+    const entries = [...ev.dataTransfer.items].map((it) => it.webkitGetAsEntry && it.webkitGetAsEntry()).filter(Boolean);
+    const files = [...ev.dataTransfer.files];
+    const dir = entries.find((e) => e.isDirectory);
+    if (dir) espFromDirEntry(dir).then(uploadEspProject);
+    else uploadFiles(files);
+  });
   // Evita que soltar un archivo fuera de la zona lo abra en el navegador.
   window.addEventListener("dragover", (ev) => ev.preventDefault());
   window.addEventListener("drop", (ev) => ev.preventDefault());

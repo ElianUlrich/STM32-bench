@@ -366,6 +366,9 @@ details.adv .ic { width: 14px; height: 14px; }
   background: none; border: 0; color: inherit; text-align: left; padding: 0; cursor: inherit; min-width: 0;
 }
 .file-row .sub { color: var(--muted); }
+.file-row .esp-addr { margin-right: 8px; font-size: 11px; color: var(--accent-text); background: var(--accent-soft);
+  border-radius: 4px; padding: 1px 5px; }
+#confirm-text { white-space: pre-line; }
 .file-row .size, .file-row .date { color: var(--muted); font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .kind { display: inline-block; font-size: 10.5px; font-weight: 700; text-transform: uppercase; text-align: center; border-radius: 5px; padding: 2px 0; min-width: 40px; background: var(--info-soft); color: var(--info); letter-spacing: .03em; }
 .kind.elf { background: var(--accent-soft); color: var(--accent-text); }
