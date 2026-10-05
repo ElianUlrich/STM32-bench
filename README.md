@@ -910,3 +910,7 @@ Verificalo en la BeagleBoard:
     → `/dev/ttyACM0`): arrastrar la carpeta en Chrome/Edge/Firefox, la confirmación del navegador al
     elegir una carpeta con el botón, grabar solo el programa y todo el proyecto con esptool 4.12, y
     que los presets en NVS sobrevivan.
+
+## Licencia
+
+[MIT](LICENSE) © 2026 Elian Ulrich. Podés usar, modificar y distribuir el código citando al autor.
