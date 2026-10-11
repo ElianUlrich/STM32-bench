@@ -37,7 +37,8 @@ from .history import History
 from .procs import run_capture
 from .programmers import avrdude as avr_cmd, base, dfu as dfu_cmd, esptool as esp_cmd, openocd as ocd_cmd
 from .programmers.gdbserver import GdbServer, GdbServerBusy, GdbServerError, ServerTarget
-from .programmers.runner import BusyError, Job, JobContext, JobFailed, JobRunner, new_job
+from .programmers.runner import BusyError, Job, JobContext, JobFailed, JobRunner, failure_reason, new_job
+from .progress import tracker_for
 from .serial_monitor import SerialError, SerialManager
 from .settings import BenchConfig, ConfigError, InterfaceConfig, Settings, load_bench_config
 
@@ -361,6 +362,7 @@ class Bench:
                     base.INFO: "Chip identificado (ver el log)"}
 
         async def fn(ctx: JobContext) -> str:
+            ctx.track(tracker_for("openocd", action))
             await ctx.run(argv, source="openocd", timeout_s=timeout)
             return messages[action]
 
@@ -394,6 +396,7 @@ class Bench:
             return dev.vid_pid == dfu.vid_pid and (requested_serial is None or dev.serial == requested_serial)
 
         async def fn(ctx: JobContext) -> str:
+            ctx.track(tracker_for("dfu-util", action))
             with tempfile.TemporaryDirectory(prefix="stm32bench-") as tmp:
                 tmpdir = Path(tmp)
                 # 1) Imagen binaria
@@ -443,7 +446,9 @@ class Bench:
                                 ctx.log("dfu-util devolvió error al salir del bootloader, pero la "
                                         "descarga se completó (normal con :leave)", level="warn")
                             else:
-                                raise JobFailed(f"dfu-util terminó con código {result.returncode}")
+                                reason = failure_reason(result.output)
+                                raise JobFailed(f"dfu-util falló: {reason}" if reason
+                                                else f"dfu-util terminó con código {result.returncode}")
                         left = leave
                         message = "Flasheado por DFU" + (" y en ejecución" if leave else "")
                     elif action == base.VERIFY:
@@ -525,7 +530,13 @@ class Bench:
                     base.RESET: "Reset enviado", base.INFO: "Chip identificado (ver el log)"}
         kind = compat.esp.kind if (compat is not None and compat.esp is not None) else None
 
+        if pairs:
+            sizes: Optional[List[int]] = [path.stat().st_size for _, path in pairs]
+        else:
+            sizes = [firmware.stat().st_size] if firmware is not None else None
+
         async def fn(ctx: JobContext) -> str:
+            ctx.track(tracker_for("esptool", action, sizes))
             if pairs and action in (base.FLASH, base.VERIFY):
                 for a, path in pairs:
                     ctx.log(f"0x{a:06X}  {path.relative_to(folder).as_posix()}")
@@ -581,6 +592,7 @@ class Bench:
             await ctx.run(build(target_port), source="avrdude", timeout_s=timeout)
 
         async def fn(ctx: JobContext) -> str:
+            ctx.track(tracker_for("avrdude", action))
             await self._run_releasing_port(ctx, port, lambda: run(ctx))
             return messages[action]
 

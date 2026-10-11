@@ -4,9 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
-  <title>Banco STM32 — Laboratorio remoto</title>
+  <title>Banco remoto</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="style.css">
+  <script src="ui-utils.js" defer></script>
   <script src="app.js" defer></script>
 </head>
 <body>
@@ -43,15 +44,20 @@
     <symbol id="i-send" viewBox="0 0 24 24"><path d="M21 3 10 14"/><path d="m21 3-7 18-4-7-7-4z"/></symbol>
     <symbol id="i-usb" viewBox="0 0 24 24"><circle cx="12" cy="19" r="2"/><path d="M12 17V4M9 6.5 12 3.5l3 3M12 13l-4-2.5V8M12 11l4-2V6.5"/><rect x="15" y="4.5" width="2" height="2"/><circle cx="8" cy="7" r="1"/></symbol>
     <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/></symbol>
+    <symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+    <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+    <symbol id="i-sidebar" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></symbol>
+    <symbol id="i-pin" viewBox="0 0 24 24"><path d="M9 4h6l-1 6 3 3H7l3-3z"/><path d="M12 13v7"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
     <symbol id="i-cable" viewBox="0 0 24 24"><path d="M4 9a2 2 0 0 1 2-2h3v6H6a2 2 0 0 1-2-2zM9 8h3M9 12h3M15 16a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-2h-5zM17 14v-3a4 4 0 0 0-4-4h-1M17.5 18v3"/></symbol>
   </svg>
 
   <header class="topbar">
-    <a class="brand" href="#archivos" aria-label="Banco STM32 — inicio">
+    <a class="brand" href="#archivos" aria-label="Banco remoto — inicio">
       <span class="brand-tile"><svg class="ic" aria-hidden="true"><use href="#i-chip"/></svg></span>
       <span class="brand-text">
-        <span class="brand-name">Banco STM32</span>
-        <span class="brand-sub hide-sm">Laboratorio remoto de microcontroladores</span>
+        <span class="brand-name">Banco remoto</span>
+        <span class="brand-sub hide-sm">Programación y depuración de microcontroladores</span>
       </span>
       <span id="mock-badge" class="badge warn" hidden>SIMULACIÓN</span>
     </a>
@@ -73,9 +79,23 @@
 
   <main class="layout">
     <!-- Columna izquierda: placa, firmware, acciones y GDB -->
-    <section class="col-left" aria-label="Placa y acciones">
-      <div class="card">
-        <h2 class="card-title"><svg class="ic" aria-hidden="true"><use href="#i-chip"/></svg>Placa</h2>
+    <section class="col-left" id="col-left" aria-label="Placa y acciones">
+      <div class="side-scroll">
+      <div class="card" id="board-card">
+        <div class="card-title">
+          <h2><svg class="ic" aria-hidden="true"><use href="#i-chip"/></svg>Placa</h2>
+          <span class="card-tools">
+            <button type="button" class="link small" id="btn-board-toggle" aria-expanded="true"
+                    aria-controls="board-form">Listo</button>
+            <button type="button" class="icon-btn plain" id="btn-side-collapse" aria-expanded="true"
+                    aria-controls="col-left" aria-label="Plegar la columna de placa y acciones"
+                    title="Plegar la columna (más lugar para trabajar)">
+              <svg class="ic" aria-hidden="true"><use href="#i-sidebar"/></svg></button>
+          </span>
+        </div>
+        <button type="button" id="board-summary" class="board-summary" aria-controls="board-form"
+                aria-expanded="false" hidden></button>
+        <div id="board-form">
         <label class="field">
           <span>Placa / chip</span>
           <select id="sel-chip"></select>
@@ -123,10 +143,14 @@
           </div>
         </div>
         <p id="isp-note" class="note" hidden>Programador ISP (USBasp) por USB: no usa puerto serie.</p>
+        </div>
       </div>
 
-      <div class="card">
-        <h2 class="card-title"><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg>Firmware</h2>
+      <div class="card" id="fw-card">
+        <div class="card-title">
+          <h2><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg>Firmware</h2>
+          <span class="card-tools"><button type="button" class="link small" id="btn-fw-change">Elegir otro</button></span>
+        </div>
         <div id="fw-selected" class="fw-selected empty">Elegí un archivo en la pestaña <em>Archivos</em></div>
         <p id="fw-target-warn" class="note warn-text" hidden></p>
         <div class="field" id="esp-scope-field" hidden>
@@ -148,8 +172,9 @@
         </label>
       </div>
 
-      <div class="card">
-        <h2 class="card-title"><svg class="ic" aria-hidden="true"><use href="#i-zap"/></svg>Acciones</h2>
+      </div>
+
+      <div class="card side-actions" role="group" aria-label="Acciones">
         <div class="actions">
           <button class="btn primary wide" data-action="flash" type="button">
             <svg class="ic" aria-hidden="true"><use href="#i-zap"/></svg>Flashear</button>
@@ -166,32 +191,21 @@
           <button class="btn" data-action="info" type="button" title="Lee qué chip está conectado">
             <svg class="ic" aria-hidden="true"><use href="#i-scan"/></svg>Identificar</button>
         </div>
-        <p id="method-reason" class="note info" hidden></p>
-        <div id="job-box" class="job-box" role="status" hidden>
-          <div class="job-line"><i class="spinner" aria-hidden="true"></i><span id="job-desc"></span></div>
-          <button class="btn small" id="btn-cancel" type="button">Cancelar</button>
-        </div>
-        <div id="last-result" class="last-result" role="status" aria-live="polite" hidden></div>
+        <p id="method-reason" class="note compact" hidden></p>
       </div>
 
-      <div class="card" id="gdb-card">
-        <h2 class="card-title"><svg class="ic" aria-hidden="true"><use href="#i-plug"/></svg>Servidor GDB</h2>
-        <div class="gdb-status">
-          <i class="dot" id="gdb-dot"></i>
-          <span id="gdb-state">Detenido</span>
-        </div>
-        <div id="gdb-connect" class="gdb-connect" hidden>
-          <code id="gdb-addr"></code>
-          <button class="btn small" id="btn-copy-gdb" type="button" aria-label="Copiar la dirección del servidor GDB">
-            <svg class="ic" aria-hidden="true"><use href="#i-copy"/></svg>Copiar</button>
-        </div>
-        <small class="note" id="gdb-note"></small>
-        <div class="row">
-          <button class="btn" id="btn-gdb-start" type="button">
-            <svg class="ic" aria-hidden="true"><use href="#i-play"/></svg>Iniciar</button>
-          <button class="btn" id="btn-gdb-stop" type="button" disabled>
-            <svg class="ic" aria-hidden="true"><use href="#i-stop"/></svg>Detener</button>
-        </div>
+      <!-- Columna plegada: sólo lo esencial, como íconos -->
+      <div class="side-rail" id="side-rail">
+        <button type="button" class="icon-btn rail-btn" id="btn-side-expand" aria-expanded="false"
+                aria-controls="col-left" aria-label="Mostrar la columna de placa y acciones" title="Mostrar la columna">
+          <svg class="ic" aria-hidden="true"><use href="#i-sidebar"/></svg></button>
+        <button type="button" class="rail-chip" id="rail-chip" title="Placa elegida"></button>
+        <button type="button" class="icon-btn rail-btn primary" data-action="flash" data-label="Flashear"
+                aria-label="Flashear"><svg class="ic" aria-hidden="true"><use href="#i-zap"/></svg></button>
+        <button type="button" class="icon-btn rail-btn" data-action="verify" data-label="Verificar"
+                aria-label="Verificar"><svg class="ic" aria-hidden="true"><use href="#i-shield"/></svg></button>
+        <button type="button" class="icon-btn rail-btn" data-action="reset" data-label="Reset"
+                aria-label="Reset"><svg class="ic" aria-hidden="true"><use href="#i-rotate"/></svg></button>
       </div>
     </section>
 
@@ -211,31 +225,57 @@
             <svg class="ic" aria-hidden="true"><use href="#i-server"/></svg>Sistema</button>
         </nav>
 
-        <div class="tab" id="tab-files" role="tabpanel" aria-labelledby="tabbtn-files">
-          <div id="dropzone" class="dropzone" tabindex="0" aria-label="Subir archivos: arrastrá o presioná Enter para elegir">
-            <input type="file" id="file-input" accept=".elf,.hex,.bin,.zip" multiple hidden>
-            <input type="file" id="dir-input" webkitdirectory hidden>
-            <span class="drop-icon" aria-hidden="true"><svg class="ic"><use href="#i-upload"/></svg></span>
-            <div class="drop-text">
-              <strong>Arrastrá el firmware acá</strong> o <button type="button" class="link" id="btn-pick">elegí archivos</button>
-              <small class="muted">.elf, .hex, .bin o un proyecto .zip con las fuentes (para depurar)</small>
-              <small class="muted">ESP-IDF: arrastrá la carpeta del proyecto o
-                <button type="button" class="link" id="btn-pick-dir">elegí la carpeta</button>; se suben sólo los .bin que hay que grabar</small>
+        <div id="job-bar" class="job-bar" role="region" aria-label="Operación" hidden>
+          <div class="job-head">
+            <span class="job-icon" id="job-icon" aria-hidden="true"></span>
+            <div class="job-text">
+              <strong id="job-title"></strong>
+              <span id="job-desc" class="job-desc"></span>
             </div>
-            <div class="drop-opts">
-              <label class="inline">Placa <select id="sel-upload-target" class="upload-target"></select></label>
-              <label class="inline">Proyecto <input id="inp-project" type="text" value="general" spellcheck="false" autocomplete="off"></label>
-            </div>
-            <small class="muted" id="upload-limit"></small>
+            <span class="job-time" id="job-time"></span>
+            <button class="btn small" id="btn-cancel" type="button">Cancelar</button>
+            <button class="btn small ghost" id="btn-job-log" type="button" hidden>
+              <svg class="ic" aria-hidden="true"><use href="#i-terminal"/></svg>Ver log</button>
+            <button class="icon-btn plain" id="btn-job-close" type="button" aria-label="Cerrar el aviso" hidden>
+              <svg class="ic" aria-hidden="true"><use href="#i-x"/></svg></button>
           </div>
-          <div id="upload-status" class="note" role="status" aria-live="polite"></div>
+          <div class="job-track" id="job-track" role="progressbar" aria-label="Progreso de la operación"
+               aria-valuemin="0" aria-valuemax="100"><i id="job-fill"></i></div>
+          <ol class="job-steps" id="job-steps" aria-label="Etapas"></ol>
+          <ul class="job-warnings" id="job-warnings" hidden></ul>
+        </div>
+        <div id="job-live" class="sr-only" role="status" aria-live="polite"></div>
+
+        <div class="tab" id="tab-files" role="tabpanel" aria-labelledby="tabbtn-files">
+          <input type="file" id="file-input" accept=".elf,.hex,.bin,.zip" multiple hidden>
+          <input type="file" id="dir-input" webkitdirectory hidden>
+          <div class="upload-bar">
+            <button type="button" class="btn small" id="btn-pick" title=".elf, .hex, .bin o un proyecto .zip con las fuentes (para depurar)">
+              <svg class="ic" aria-hidden="true"><use href="#i-upload"/></svg>Subir firmware</button>
+            <button type="button" class="btn small" id="btn-pick-dir" title="Se suben sólo los .bin que lista build/flasher_args.json">
+              <svg class="ic" aria-hidden="true"><use href="#i-folder"/></svg>Carpeta ESP-IDF</button>
+            <label class="inline compact">para <select id="sel-upload-target" class="upload-target"></select></label>
+            <label class="inline compact">proyecto <input id="inp-project" type="text" value="general" spellcheck="false" autocomplete="off"></label>
+            <small class="upload-hint" id="upload-limit"></small>
+          </div>
+          <div id="upload-status" class="note" role="status" aria-live="polite" hidden></div>
           <div class="files-toolbar">
-            <input id="inp-filter" type="search" placeholder="Filtrar archivos…" autocomplete="off" aria-label="Filtrar archivos">
-            <button type="button" class="btn small" id="btn-refresh-files">
+            <span class="search-box">
+              <svg class="ic" aria-hidden="true"><use href="#i-search"/></svg>
+              <input id="inp-filter" type="search" placeholder="Buscar por nombre o placa" autocomplete="off" aria-label="Buscar archivos">
+            </span>
+            <label class="check small" title="Mostrar sólo los archivos de la placa elegida">
+              <input type="checkbox" id="chk-only-chip"><span>Sólo esta placa</span></label>
+            <button type="button" class="btn small ghost" id="btn-refresh-files">
               <svg class="ic" aria-hidden="true"><use href="#i-refresh"/></svg>Actualizar</button>
           </div>
           <div id="files-list" class="files-list"></div>
           <small class="muted" id="projects-dir"></small>
+          <div class="drop-overlay" id="drop-overlay" hidden>
+            <svg class="ic" aria-hidden="true"><use href="#i-upload"/></svg>
+            <strong>Soltá para subir</strong>
+            <span>Archivos .elf, .hex, .bin, .zip o la carpeta de un proyecto ESP-IDF</span>
+          </div>
         </div>
 
         <div class="tab" id="tab-debug" role="tabpanel" aria-labelledby="tabbtn-debug" hidden>
@@ -304,6 +344,27 @@
               <details><summary>Registros</summary><table class="vars regs" id="dbg-regs"></table></details>
             </aside>
           </div>
+          <details class="gdb-ext" id="gdb-card">
+            <summary>
+              <svg class="ic" aria-hidden="true"><use href="#i-plug"/></svg>
+              <span class="gdb-ext-title">Servidor GDB para VS Code o CubeIDE</span>
+              <span class="gdb-status"><i class="dot" id="gdb-dot"></i><span id="gdb-state">Detenido</span></span>
+            </summary>
+            <div class="gdb-body">
+              <div id="gdb-connect" class="gdb-connect" hidden>
+                <code id="gdb-addr"></code>
+                <button class="btn small" id="btn-copy-gdb" type="button" aria-label="Copiar la dirección del servidor GDB">
+                  <svg class="ic" aria-hidden="true"><use href="#i-copy"/></svg>Copiar</button>
+              </div>
+              <small class="note" id="gdb-note"></small>
+              <div class="row">
+                <button class="btn small" id="btn-gdb-start" type="button">
+                  <svg class="ic" aria-hidden="true"><use href="#i-play"/></svg>Iniciar</button>
+                <button class="btn small" id="btn-gdb-stop" type="button" disabled>
+                  <svg class="ic" aria-hidden="true"><use href="#i-stop"/></svg>Detener</button>
+              </div>
+            </div>
+          </details>
         </div>
 
         <div class="tab" id="tab-serial" role="tabpanel" aria-labelledby="tabbtn-serial" hidden>
@@ -365,16 +426,29 @@
       <div class="splitter" id="splitter" role="separator" aria-orientation="horizontal" tabindex="0"
            aria-label="Cambiar la altura del log (flechas arriba y abajo)" title="Arrastrá para cambiar la altura del log"></div>
 
-      <div class="panel log-panel" id="log-panel">
+      <div class="panel log-panel collapsed" id="log-panel">
         <div class="log-head">
-          <h2><svg class="ic" aria-hidden="true"><use href="#i-terminal"/></svg>Log en vivo</h2>
+          <button type="button" class="log-toggle" id="btn-log-toggle" aria-expanded="false" aria-controls="log-out">
+            <svg class="ic chev" aria-hidden="true"><use href="#i-chevron-right"/></svg>
+            <svg class="ic" aria-hidden="true"><use href="#i-terminal"/></svg><span>Log</span></button>
+          <span class="log-last" id="log-last"></span>
+          <span class="log-issues" id="log-issues" hidden></span>
           <div class="log-tools">
+            <span class="search-box small">
+              <svg class="ic" aria-hidden="true"><use href="#i-search"/></svg>
+              <input id="inp-log-search" type="search" placeholder="Buscar en el log" autocomplete="off" aria-label="Buscar en el log">
+            </span>
+            <label class="check small" title="Mostrar sólo errores y avisos"><input type="checkbox" id="chk-log-issues"><span>Sólo errores</span></label>
             <label class="check small"><input type="checkbox" id="chk-log-auto" checked><span>Autoscroll</span></label>
+            <button class="btn small ghost" id="btn-log-copy" type="button">
+              <svg class="ic" aria-hidden="true"><use href="#i-copy"/></svg>Copiar</button>
             <button class="btn small ghost" id="btn-log-clear" type="button">Limpiar</button>
-            <button class="btn small ghost" id="btn-log-toggle" type="button" aria-controls="log-out">Ocultar</button>
+            <button class="icon-btn plain" id="btn-log-pin" type="button" aria-pressed="false"
+                    aria-label="Dejar el log siempre abierto" title="Dejar el log siempre abierto">
+              <svg class="ic" aria-hidden="true"><use href="#i-pin"/></svg></button>
           </div>
         </div>
-        <pre id="log-out" class="term log" aria-label="Log en vivo" tabindex="0"></pre>
+        <pre id="log-out" class="term log" aria-label="Log en vivo" tabindex="0" hidden></pre>
       </div>
     </section>
   </main>

@@ -1,4 +1,4 @@
-# Reglas udev del banco STM32: acceso SIN root para el grupo plugdev a los
+# Reglas udev del banco remoto: acceso SIN root para el grupo plugdev a los
 # programadores ST-Link y al bootloader USB DFU de ST, y al grupo gpio para
 # los /dev/gpiochipN (libgpiod). Se instala en /etc/udev/rules.d/.
 

@@ -1,7 +1,7 @@
-# Servicio de la app web del banco STM32. install.sh reemplaza @SERVICE_USER@ y @APP_DIR@.
+# Servicio de la app web del banco remoto. install.sh reemplaza @SERVICE_USER@ y @APP_DIR@.
 # OpenOCD (servidor GDB) NO es un servicio fijo: lo arranca y detiene la app.
 [Unit]
-Description=Banco STM32 - programacion y debug remoto
+Description=Banco remoto - programacion y depuracion de microcontroladores
 Wants=network-online.target
 After=network-online.target tailscaled.service
 

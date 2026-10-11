@@ -1,4 +1,4 @@
-// Banco STM32 — interfaz web (JavaScript sin dependencias).
+// Banco remoto — interfaz web (JavaScript sin dependencias; funciones puras en ui-utils.js).
 "use strict";
 
 const $ = (id) => document.getElementById(id);
@@ -21,6 +21,12 @@ const state = {
   gdb: { state: "stopped", active: false },
   serial: { open: false },
   tab: "files",
+  chipLabels: {},         // nombre corto de cada placa (sin repetidos)
+  lastJob: null,          // último trabajo terminado (su aviso queda hasta cerrarlo)
+  clockOffset: 0,         // reloj de la PC menos reloj de la placa, en segundos
+  scrollToFile: false,    // al mostrar la lista, llevar a la vista el archivo elegido
+  titleFlag: false,       // terminó un trabajo con la pestaña en segundo plano
+  log: { issues: { error: 0, warn: 0 }, query: "", pinned: false, touched: false },
   // Depurador: estado de la sesión (llega por SSE) y fuentes del .elf que se muestran.
   dbg: { status: { state: "off" }, sources: [], sourcesFor: null, texts: {}, current: null, lines: [],
          marked: new Set(), missing: [], changed: new Set(), lastValues: {} },
@@ -215,7 +221,7 @@ function methodLabel(chip, method) {
 }
 
 // <select> de placas agrupadas por familia (STM32, Espressif, Arduino).
-function chipOptions(includeEmpty) {
+function chipOptions(includeEmpty, short) {
   const groups = new Map();
   for (const c of state.config.chips) {
     if (!groups.has(c.group)) groups.set(c.group, []);
@@ -223,7 +229,8 @@ function chipOptions(includeEmpty) {
   }
   const nodes = includeEmpty ? [el("option", { value: "" }, includeEmpty)] : [];
   for (const [group, chips] of groups) {
-    nodes.push(el("optgroup", { label: group }, ...chips.map((c) => el("option", { value: c.id }, c.name))));
+    nodes.push(el("optgroup", { label: group }, ...chips.map((c) =>
+      el("option", { value: c.id, title: short ? c.name : null }, short ? state.chipLabels[c.id] : c.name))));
   }
   return nodes;
 }
@@ -237,18 +244,20 @@ function renderConfig() {
   errors.textContent = cfg.config_errors.length ? "Error de configuración: " + cfg.config_errors.join(" · ") : "";
   renderCfgCheck();
 
+  state.chipLabels = UI.chipLabels(cfg.chips);
   $("sel-chip").replaceChildren(...chipOptions(null));
   const saved = prefs.get("chip", null);
   state.chip = cfg.chips.some((c) => c.id === saved) ? saved : (cfg.chips[0] && cfg.chips[0].id);
   $("sel-chip").value = state.chip || "";
 
-  $("sel-upload-target").replaceChildren(...chipOptions("¿Para qué placa es?"));
+  $("sel-upload-target").replaceChildren(...chipOptions("¿Para qué placa es?", true));
 
   $("sel-interface").replaceChildren(...cfg.interfaces.map((i) =>
     el("option", { value: i.id, title: i.description }, `${i.id} (${i.cfg})`)));
 
   $("boot-desc").textContent = cfg.boot_control.description;
-  $("upload-limit").textContent = `Máximo ${cfg.uploads.max_size_mb} MB por archivo`;
+  $("upload-limit").textContent = `o arrastrá archivos acá · máx. ${cfg.uploads.max_size_mb} MB`;
+  $("upload-limit").title = "Archivos .elf, .hex, .bin o .zip, o la carpeta de un proyecto ESP-IDF, soltados en cualquier parte de esta pestaña";
   onChipChange(true);
 }
 
@@ -283,6 +292,7 @@ function onChipChange(initial) {
   $("sel-upload-target").value = chip.id;
   renderMethodButtons();
   updateMethodUI();
+  if (state.projects.length) renderFiles();   // etiquetas "esta placa" y filtro
   if (!initial) refreshProbes();
 }
 
@@ -334,6 +344,7 @@ function updateMethodUI() {
   const reason = m === "swd" ? "" : methodReason(m, "halt");
   $("method-reason").hidden = !reason;
   $("method-reason").textContent = reason;
+  $("method-reason").title = reason;
 
   // Dirección para .bin (STM32: base de flash; ESP: se detecta sola).
   const espProject = !!(state.file && state.file.esp && m === "esptool");
@@ -353,6 +364,8 @@ function updateMethodUI() {
   renderFileBinding();
   updateActionButtons();
   renderGdb();
+  renderBoardSummary();
+  renderRailChip();
 }
 
 // ¿El archivo elegido corresponde a la placa elegida?
@@ -382,6 +395,8 @@ function updateActionButtons() {
   const mismatch = fileMismatchReason();
   for (const btn of document.querySelectorAll("[data-action]")) {
     const action = btn.dataset.action;
+    // Lo que el método no permite (p. ej. Halt por puerto serie) no se muestra: la nota lo explica.
+    btn.hidden = !!chip && !caps.includes(action);
     let reason = "";
     if (!chip) reason = "No hay placas configuradas";
     else if (!caps.includes(action)) reason = methodReason(state.method, action) || "No disponible con este método";
@@ -389,7 +404,7 @@ function updateActionButtons() {
     else if (FILE_ACTIONS.includes(action) && !state.file) reason = "Elegí un archivo de firmware";
     else if (FILE_ACTIONS.includes(action) && mismatch) reason = mismatch;
     btn.disabled = !!reason;
-    btn.title = reason;
+    btn.title = reason || btn.dataset.label || "";
   }
   renderDebug();
 }
@@ -461,6 +476,65 @@ function renderProbes() {
     state.config.boot_control.backend + ").";
   else dnote = `${state.dfu.length} dispositivo(s) en modo DFU.`;
   $("dfu-note").textContent = dnote;
+  renderBoardSummary();
+}
+
+// ------------------------------------------------- resumen de la placa y columna plegable
+
+// Una vez elegidos placa y programador, la tarjeta se pliega a un resumen de dos líneas.
+function renderBoardSummary() {
+  const chip = currentChip();
+  const box = $("board-summary");
+  if (!chip) { box.replaceChildren(); return; }
+  const m = state.method;
+  let prog = "", warn = "";
+  if (m === "swd") {
+    const p = state.stlinks.find((x) => x.serial === $("sel-probe").value);
+    prog = p ? `${p.model} · …${p.serial.slice(-6)}` : "";
+    if (!state.stlinks.length) warn = "No se detectó ningún ST-Link";
+    else if (!p) warn = "Elegí un ST-Link";
+    else if (!p.accessible) warn = "ST-Link sin permisos (reglas udev)";
+  } else if (m === "dfu") {
+    prog = $("sel-dfu").value ? `DFU ${$("sel-dfu").value}` : "DFU automático";
+  } else if (usesSerialPort(chip, m)) {
+    prog = $("sel-prog-port").value || "";
+    if (!(state.serialPorts || []).length) warn = "No hay puertos serie USB";
+    else if (!prog) warn = "Elegí el puerto serie de la placa";
+  } else {
+    prog = "Programador ISP por USB";
+  }
+  box.replaceChildren(...[
+    el("span", { class: "bs-name" }, chip.name),
+    el("span", { class: "bs-sub" }, [methodLabel(chip, m), prog].filter(Boolean).join(" · ")),
+    warn ? el("span", { class: "bs-warn" }, warn) : null].filter(Boolean));
+  box.title = "Cambiar la placa o el programador";
+}
+
+function setBoardCollapsed(collapsed) {
+  $("board-form").hidden = collapsed;
+  $("board-summary").hidden = !collapsed;
+  const toggle = $("btn-board-toggle");
+  toggle.textContent = collapsed ? "Cambiar" : "Listo";
+  toggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+  prefs.set("boardCollapsed", collapsed);
+  if (collapsed) renderBoardSummary();
+}
+
+function renderRailChip() {
+  const chip = currentChip();
+  const b = $("rail-chip");
+  b.textContent = chip ? state.chipLabels[chip.id] : "";
+  b.title = chip ? `${chip.name} · ${methodLabel(chip, state.method)} (clic para cambiar)` : "";
+}
+
+// Columna izquierda plegada a un riel de íconos: más lugar para archivos, código y consolas.
+function setSideCollapsed(collapsed, moveFocus) {
+  document.querySelector(".layout").classList.toggle("side-collapsed", collapsed);
+  $("btn-side-collapse").setAttribute("aria-expanded", collapsed ? "false" : "true");
+  $("btn-side-expand").setAttribute("aria-expanded", collapsed ? "false" : "true");
+  prefs.set("sideCollapsed", collapsed);
+  renderRailChip();
+  if (moveFocus) (collapsed ? $("btn-side-expand") : $("btn-side-collapse")).focus();
 }
 
 // ------------------------------------------------------------------ archivos
@@ -481,55 +555,99 @@ async function loadFiles() {
   }
 }
 
+function fileRow(f) {
+  // Placa del archivo: etiqueta que se cambia con un clic (select nativo, accesible con teclado).
+  const chipName = (chipById(f.target) || {}).name;
+  const target = el("select", {
+    class: "target-sel" + (f.target ? (f.target === state.chip ? " current" : "") : " unassigned"),
+    title: f.target ? `Placa: ${chipName || f.target} (clic para cambiarla)` : "Asignale la placa a este archivo",
+    "aria-label": `Placa de ${f.name}`,
+    onclick: (ev) => ev.stopPropagation(),
+    onchange: (ev) => assignTarget(f, ev.target.value),
+  }, ...chipOptions("Asignar placa", true));
+  target.value = f.target || "";
+  const selected = !!(state.file && state.file.path === f.path);
+  const choose = () => { if (f.usable) { setFile(f); renderFiles(); } };
+  return el("div", {
+    class: "file-row" + (selected ? " selected" : "") + (f.usable ? "" : " unusable"),
+    title: f.usable ? f.path : "Nombre con caracteres no permitidos: renombralo para poder usarlo",
+    onclick: choose,
+  },
+    el("span", { class: "kind " + f.kind }, f.kind),
+    // Botón: el archivo se elige también con el teclado (Tab + Enter).
+    el("button", { class: "name", type: "button", disabled: !f.usable, "aria-pressed": selected ? "true" : "false",
+      "aria-label": `Elegir ${f.path}`, onclick: (ev) => { ev.stopPropagation(); choose(); } },
+      f.esp ? el("span", { class: "esp-addr", title: `Proyecto ESP-IDF: ${ESP_ROLES[f.esp.role] || f.esp.role}` },
+        f.esp.address) : null,
+      f.name, f.subdir ? el("span", { class: "sub" }, "  " + f.subdir) : null),
+    target,
+    el("span", { class: "size" }, fmtSize(f.size)),
+    el("span", { class: "date", title: fmtDate(f.mtime) }, UI.fmtAgo(f.mtime, Date.now() - state.clockOffset * 1000)),
+    f.deletable
+      ? el("button", { class: "icon-btn", type: "button", title: "Borrar", "aria-label": "Borrar " + f.name,
+        onclick: (ev) => { ev.stopPropagation(); deleteFile(f); } }, icon("trash"))
+      : el("span", {}));
+}
+
+function toggleProject(key) {
+  const collapsed = new Set(prefs.get("collapsedProjects", []));
+  if (collapsed.has(key)) collapsed.delete(key); else collapsed.add(key);
+  prefs.set("collapsedProjects", [...collapsed]);
+  renderFiles();
+}
+
 function renderFiles() {
-  const filter = $("inp-filter").value.trim().toLowerCase();
   const list = $("files-list");
-  const blocks = [];
-  for (const project of state.projects) {
-    const files = project.files.filter((f) => !filter || f.path.toLowerCase().includes(filter)
-      || (f.target && (chipById(f.target) || {}).name && chipById(f.target).name.toLowerCase().includes(filter)));
-    if (!files.length) continue;
-    const head = el("div", { class: "project-head" },
+  const text = $("inp-filter").value;
+  const onlyChip = $("chk-only-chip").checked;
+  const names = Object.fromEntries((state.config ? state.config.chips : []).map((c) => [c.id, c.name]));
+  const projects = UI.filterProjects(state.projects, { text, chip: state.chip, onlyChip, names });
+  const collapsed = new Set(prefs.get("collapsedProjects", []));
+  const searching = !!text.trim();
+  const blocks = projects.map((project, i) => {
+    const hasSelected = !!(state.file && project.files.some((f) => f.path === state.file.path));
+    // Al buscar, o si hay que mostrar el archivo elegido, el proyecto se ve desplegado.
+    const isCollapsed = collapsed.has(project.key) && !searching && !(hasSelected && state.scrollToFile);
+    const id = "proj-" + i;
+    const n = project.files.length;
+    const head = el("button", {
+      class: "project-head", type: "button", "aria-expanded": isCollapsed ? "false" : "true", "aria-controls": id,
+      onclick: () => toggleProject(project.key),
+    },
+      icon("chevron-down", "chev"),
       el("span", {}, project.name),
+      el("span", { class: "count" }, `${n} archivo${n === 1 ? "" : "s"}`),
+      project.files.some((f) => f.esp) ? el("span", { class: "esp-badge" }, "ESP-IDF") : null,
       el("span", { class: "tag" }, project.uploaded ? "subido desde la web" : (project.key ? "sincronizado" : "")));
-    const rows = files.map((f) => {
-      // Selector de placa del archivo (asignar / cambiar).
-      const target = el("select", {
-        class: "target-sel" + (f.target ? "" : " unassigned"),
-        title: "Placa a la que corresponde este archivo",
-        onclick: (ev) => ev.stopPropagation(),
-        onchange: (ev) => assignTarget(f, ev.target.value),
-      }, ...chipOptions("⚠ sin placa"));
-      target.value = f.target || "";
-      const selected = !!(state.file && state.file.path === f.path);
-      const row = el("div", {
-        class: "file-row" + (selected ? " selected" : "") + (f.usable ? "" : " unusable"),
-        title: f.usable ? f.path : "Nombre con caracteres no permitidos: renombralo para poder usarlo",
-        onclick: () => { if (f.usable) { setFile(f); renderFiles(); } },
-      },
-        el("span", { class: "kind " + f.kind }, f.kind),
-        // Botón: el archivo se elige también con el teclado (Tab + Enter).
-        el("button", { class: "name", type: "button", disabled: !f.usable, "aria-pressed": selected ? "true" : "false",
-          "aria-label": `Elegir ${f.path}`, onclick: (ev) => { ev.stopPropagation(); if (f.usable) { setFile(f); renderFiles(); } } },
-          f.esp ? el("span", { class: "esp-addr", title: `Proyecto ESP-IDF: ${ESP_ROLES[f.esp.role] || f.esp.role}` },
-            f.esp.address) : null,
-          f.name, f.subdir ? el("span", { class: "sub" }, "  " + f.subdir) : null),
-        target,
-        el("span", { class: "size" }, fmtSize(f.size)),
-        el("span", { class: "date" }, fmtDate(f.mtime)),
-        f.deletable
-          ? el("button", { class: "icon-btn", type: "button", title: "Borrar", "aria-label": "Borrar " + f.name,
-            onclick: (ev) => { ev.stopPropagation(); deleteFile(f); } }, icon("trash"))
-          : el("span", {}));
-      return row;
-    });
-    blocks.push(el("div", { class: "project" }, head, ...rows));
-  }
+    return el("div", { class: "project" + (isCollapsed ? " collapsed" : "") }, head,
+      el("div", { class: "project-files", id }, ...project.files.map(fileRow)));
+  });
   if (!blocks.length) {
-    blocks.push(el("div", { class: "empty-state" }, filter ? "Ningún archivo coincide con el filtro." :
-      "No hay firmware todavía. Subí un archivo o sincronizá la carpeta de proyectos con Syncthing."));
+    if (searching || onlyChip) {
+      blocks.push(el("div", { class: "empty-state" }, "Ningún archivo coincide. ",
+        el("button", { class: "link", type: "button", onclick: () => {
+          $("inp-filter").value = "";
+          $("chk-only-chip").checked = false;
+          prefs.set("onlyChip", false);
+          renderFiles();
+        } }, "Mostrar todos")));
+    } else {
+      blocks.push(el("div", { class: "empty-state" },
+        "Todavía no hay firmware. Subí un archivo o sincronizá la carpeta de proyectos con Syncthing."));
+    }
   }
   list.replaceChildren(...blocks);
+  if (state.scrollToFile && state.tab === "files") {
+    state.scrollToFile = false;
+    const row = list.querySelector(".file-row.selected");
+    if (row) row.scrollIntoView({ block: "nearest" });
+  }
+}
+
+function setUploadStatus(text) {
+  const box = $("upload-status");
+  box.textContent = text || "";
+  box.hidden = !text;
 }
 
 async function assignTarget(file, target) {
@@ -553,9 +671,12 @@ function setFile(file) {
   if (file) {
     const chip = chipById(file.target);
     box.className = "fw-selected";
-    box.replaceChildren(el("span", { class: "kind " + file.kind }, file.kind), " ", file.path,
-      el("span", { class: "muted" }, `  (${fmtSize(file.size)})`),
-      el("div", { class: "fw-target" + (chip ? "" : " unassigned") }, chip ? `Placa: ${chip.name}` : "⚠ Sin placa asignada"));
+    const folder = file.path.includes("/") ? file.path.slice(0, file.path.lastIndexOf("/")) : "";
+    box.replaceChildren(
+      el("div", { class: "fw-name" }, el("span", { class: "kind " + file.kind }, file.kind), el("span", {}, file.name)),
+      el("div", { class: "fw-meta" }, [folder, fmtSize(file.size)].filter(Boolean).join(" · ")),
+      el("div", { class: "fw-target" + (chip ? "" : " unassigned") }, chip ? `Placa: ${chip.name}` : "Sin placa asignada"));
+    box.title = file.path;
     prefs.set("file", file.path);
     // Elegir un archivo elige su placa: así no se graba en otro micro.
     if (chip && chip.id !== state.chip) {
@@ -600,7 +721,7 @@ function postForm(url, form, label) {
     xhr.setRequestHeader("X-Bench", "1");
     xhr.upload.onprogress = (ev) => {
       if (ev.lengthComputable) {
-        $("upload-status").textContent = `Subiendo ${label}… ${Math.round(ev.loaded / ev.total * 100)}%`;
+        setUploadStatus(`Subiendo ${label}… ${Math.round(ev.loaded / ev.total * 100)}%`);
       }
     };
     xhr.onload = () => {
@@ -637,19 +758,19 @@ async function uploadFiles(fileList) {
     }
     try {
       last = await uploadOne(file, project, target);
-      $("upload-status").textContent = last.folder
+      setUploadStatus(last.folder
         ? `Proyecto ${file.name} → ${last.folder}: ${last.firmware.length} binario(s) y ${last.sources} fuente(s), para ${chip.name}`
-        : `${file.name} subido para ${chip.name}`;
+        : `${file.name} subido para ${chip.name}`);
       for (const w of last.warnings || []) toast(w, false);
     } catch (e) {
-      $("upload-status").textContent = "";
+      setUploadStatus("");
       toast(`${file.name}: ${e.message}`, true);
     }
   }
   await loadFiles();
   if (last) {
     const f = state.projects.flatMap((p) => p.files).find((x) => x.path === last.path);
-    if (f) { setFile(f); renderFiles(); }
+    if (f) { state.scrollToFile = true; setFile(f); renderFiles(); }
   }
 }
 
@@ -735,12 +856,12 @@ async function uploadEspProject(src) {
   form.append("target", target);
   try {
     const res = await postForm("/api/files/esp-project", form, `proyecto ${src.name}`);
-    $("upload-status").textContent = `Proyecto ${src.name} → ${res.folder}: ${res.firmware.length} archivos para ${chip.name}`;
+    setUploadStatus(`Proyecto ${src.name} → ${res.folder}: ${res.firmware.length} archivos para ${chip.name}`);
     await loadFiles();
     const f = state.projects.flatMap((p) => p.files).find((x) => x.path === res.path);
-    if (f) { setFile(f); renderFiles(); }
+    if (f) { state.scrollToFile = true; setFile(f); renderFiles(); }
   } catch (e) {
-    $("upload-status").textContent = "";
+    setUploadStatus("");
     toast(`${src.name}: ${e.message}`, true);
   }
 }
@@ -789,27 +910,117 @@ async function runAction(action, extra) {
   }
 }
 
-function renderJob() {
-  const job = state.job;
+const ACTION_VERB = { flash: "Flasheando", verify: "Verificando", erase: "Borrando", reset: "Reseteando",
+  halt: "Deteniendo el núcleo", resume: "Reanudando", info: "Identificando el chip" };
+const APP_TITLE = "Banco remoto";
+let jobTimer = null;
+let dismissTimer = null;
+
+function serverNow() { return Date.now() / 1000 - state.clockOffset; }
+
+// La barra de la operación: progreso mientras corre; después, el resultado hasta cerrarlo.
+// progressOnly: llegó otro porcentaje del mismo trabajo (no hace falta recalcular botones).
+function renderJob(progressOnly) {
+  const running = state.job;
+  const job = running || state.lastJob;
   const pill = $("pill-job");
-  pill.querySelector(".dot").className = "dot" + (job ? " busy" : "");
-  pill.querySelector("span").textContent = job ? "Ocupado" : "Libre";
-  $("job-box").hidden = !job;
-  if (job) $("job-desc").textContent = job.description;
+  pill.querySelector(".dot").className = "dot" + (running ? " busy" : "");
+  pill.querySelector("span").textContent = running ? (UI.progressText(running.progress) || "Ocupado") : "Libre";
+  const bar = $("job-bar");
+  bar.hidden = !job;
+  clearInterval(jobTimer);
+  if (job) {
+    const look = running ? "running" : job.state;
+    bar.className = "job-bar " + look;
+    if ($("job-icon").dataset.look !== look) {
+      $("job-icon").dataset.look = look;
+      $("job-icon").replaceChildren(running ? el("i", { class: "spinner" })
+        : icon({ ok: "check", error: "alert", cancelled: "stop" }[job.state] || "info"));
+    }
+    $("job-title").textContent = running
+      ? (UI.progressText(job.progress) || (ACTION_VERB[job.action] || "Trabajando") + "…")
+      : job.message;
+    $("job-desc").textContent = job.description + (!running && job.duration_s != null ? ` · ${fmtDuration(job.duration_s)}` : "");
+    $("job-desc").title = job.description;
+    $("btn-cancel").hidden = !running;
+    $("btn-job-log").hidden = !!running;
+    $("btn-job-close").hidden = !!running;
+    $("job-time").hidden = !running;
+    renderJobProgress(running ? job.progress : null, !!running, job.state);
+    const warns = job.warnings || [];
+    $("job-warnings").hidden = !warns.length;
+    $("job-warnings").replaceChildren(...warns.map((w) => el("li", {}, w)));
+    if (running) {
+      const tick = () => { $("job-time").textContent = UI.fmtElapsed(serverNow() - running.started); };
+      tick();
+      jobTimer = setInterval(tick, 1000);
+    }
+  }
+  updateTitle();
+  if (progressOnly) return;
   updateActionButtons();
   renderGdb();
 }
 
-function showResult(job) {
-  const box = $("last-result");
-  box.hidden = false;
-  box.className = "last-result " + job.state;
-  const glyph = { ok: "check", error: "x", cancelled: "stop" }[job.state];
-  const children = [el("strong", {}, glyph ? icon(glyph) : null, job.message), el("div", { class: "muted" }, job.description)];
-  if (job.warnings && job.warnings.length) {
-    children.push(el("ul", {}, ...job.warnings.map((w) => el("li", {}, w))));
+function renderJobProgress(progress, running, finalState) {
+  const track = $("job-track");
+  const fill = $("job-fill");
+  const pct = progress && progress.pct !== null && progress.pct !== undefined ? progress.pct : null;
+  track.hidden = !running && finalState !== "ok";
+  track.classList.toggle("indeterminate", running && pct === null);
+  fill.style.width = running && pct !== null ? pct + "%" : "";
+  if (running && pct !== null) track.setAttribute("aria-valuenow", String(Math.floor(pct)));
+  else track.removeAttribute("aria-valuenow");
+  track.setAttribute("aria-valuetext", running ? (UI.progressText(progress) || "En curso") : "Terminado");
+  const steps = running ? UI.stepStates(progress) : [];
+  $("job-steps").hidden = !steps.length;
+  $("job-steps").replaceChildren(...steps.map(([stage, st]) => el("li", {
+    class: st, "aria-current": st === "current" ? "step" : null,
+  }, st === "done" ? icon("check") : (st === "current" ? icon("chevron-right") : null), UI.stageLabel(stage))));
+}
+
+function updateTitle() {
+  if (state.job) {
+    document.title = `${UI.progressText(state.job.progress) || "Trabajando…"} — ${APP_TITLE}`;
+  } else if (state.titleFlag && state.lastJob) {
+    const mark = { ok: "✓ Listo", error: "✗ Error", cancelled: "■ Cancelado" }[state.lastJob.state] || "Listo";
+    document.title = `${mark} — ${APP_TITLE}`;
+  } else {
+    document.title = APP_TITLE;
   }
-  box.replaceChildren(...children);
+}
+
+function announce(text) {
+  $("job-live").textContent = text;
+}
+
+function dismissResult() {
+  clearTimeout(dismissTimer);
+  state.lastJob = null;
+  renderJob();
+}
+
+// Un resultado OK se cierra solo un rato después de verlo; los errores quedan hasta cerrarlos.
+function scheduleDismiss() {
+  clearTimeout(dismissTimer);
+  if (state.lastJob && state.lastJob.state === "ok" && !document.hidden) {
+    dismissTimer = setTimeout(dismissResult, 12000);
+  }
+}
+
+function onJobStarted(job) {
+  clearTimeout(dismissTimer);
+  state.lastJob = null;
+  state.titleFlag = false;
+  state.log.touched = false;
+  announce(`Empezó: ${job.description}`);
+}
+
+function onJobFinished(job) {
+  state.titleFlag = document.hidden;
+  announce(job.message);
+  if (job.state === "error") setLogOpen(true);   // el detalle del error, a la vista
+  scheduleDismiss();
 }
 
 // --------------------------------------------------------------- servidor GDB
@@ -1351,23 +1562,103 @@ function bindDebugUI() {
 
 // --------------------------------------------------------------------- log
 
+function logClass(ev) {
+  if (ev.level === "cmd") return "l-cmd";
+  if (ev.level === "error") return "l-error";
+  if (ev.level === "ok") return "l-ok";
+  if (ev.level === "warn") return "l-warn";
+  if (ev.source === "gdb") return "l-gdb";
+  if (ev.source === "app") return "l-app";
+  return "";
+}
+
 function appendLog(ev) {
   const out = $("log-out");
   const stick = $("chk-log-auto").checked && (out.scrollHeight - out.scrollTop - out.clientHeight < 40);
-  let cls = "";
-  if (ev.level === "cmd") cls = "l-cmd";
-  else if (ev.level === "error") cls = "l-error";
-  else if (ev.level === "ok") cls = "l-ok";
-  else if (ev.level === "warn") cls = "l-warn";
-  else if (ev.source === "gdb") cls = "l-gdb";
-  else if (ev.source === "app") cls = "l-app";
-  const line = el("div", { class: cls },
-    el("span", { class: "ts" }, fmtTime(ev.ts) + " "),
-    ev.source && ev.source !== "app" ? el("span", { class: "ts" }, `[${ev.source}] `) : null,
-    ev.line);
-  out.append(line);
-  while (out.childElementCount > MAX_LOG_LINES) out.firstElementChild.remove();
-  if (stick) out.scrollTop = out.scrollHeight;
+  const cls = logClass(ev);
+  const parts = [el("span", { class: "ts" }, fmtTime(ev.ts) + " "),
+    ev.source && ev.source !== "app" ? el("span", { class: "ts" }, `[${ev.source}] `) : null, ev.line];
+  const last = out.lastElementChild;
+  let line;
+  if (ev.progress && last && last.dataset.progress === (ev.source || "")) {
+    // "Writing at ... (45 %)": se pisa la línea de avance anterior en lugar de apilar cien.
+    line = last;
+    line.className = cls;
+    line.replaceChildren(...parts.filter(Boolean));
+  } else {
+    line = el("div", { class: cls }, ...parts);
+    if (ev.progress) line.dataset.progress = ev.source || "";
+    out.append(line);
+    while (out.childElementCount > MAX_LOG_LINES) out.firstElementChild.remove();
+  }
+  if (state.log.query) line.classList.toggle("nomatch", !line.textContent.toLowerCase().includes(state.log.query));
+  if (ev.level === "error") state.log.issues.error += 1;
+  else if (ev.level === "warn") state.log.issues.warn += 1;
+  if (String(ev.line).trim()) {
+    const lastBox = $("log-last");
+    lastBox.textContent = (ev.source && ev.source !== "app" ? `[${ev.source}] ` : "") + ev.line;
+    lastBox.className = "log-last " + cls;
+  }
+  renderLogIssues();
+  if (stick && !out.hidden) out.scrollTop = out.scrollHeight;
+}
+
+function renderLogIssues() {
+  const { error, warn } = state.log.issues;
+  const chip = $("log-issues");
+  chip.hidden = !error && !warn;
+  chip.className = "log-issues" + (error ? "" : " warn");
+  chip.textContent = error ? `${error} error${error === 1 ? "" : "es"}` : `${warn} aviso${warn === 1 ? "" : "s"}`;
+}
+
+function clearLog() {
+  $("log-out").replaceChildren();
+  state.log.issues = { error: 0, warn: 0 };
+  $("log-last").textContent = "";
+  renderLogIssues();
+}
+
+function setLogOpen(open) {
+  const panel = $("log-panel");
+  panel.classList.toggle("collapsed", !open);
+  const out = $("log-out");
+  out.hidden = !open;
+  $("btn-log-toggle").setAttribute("aria-expanded", open ? "true" : "false");
+  if (open) out.scrollTop = out.scrollHeight;
+}
+
+function setLogPinned(pinned) {
+  state.log.pinned = pinned;
+  prefs.set("logPinned", pinned);
+  $("btn-log-pin").setAttribute("aria-pressed", pinned ? "true" : "false");
+  if (pinned) setLogOpen(true);
+}
+
+function filterLog() {
+  state.log.query = $("inp-log-search").value.trim().toLowerCase();
+  for (const line of $("log-out").children) {
+    line.classList.toggle("nomatch", !!state.log.query && !line.textContent.toLowerCase().includes(state.log.query));
+  }
+}
+
+function bindLog() {
+  $("btn-log-toggle").addEventListener("click", () => {
+    const open = $("log-panel").classList.contains("collapsed");
+    if (!open && state.log.pinned) setLogPinned(false);   // plegarlo a mano lo desfija
+    setLogOpen(open);
+  });
+  $("btn-log-pin").addEventListener("click", () => setLogPinned(!state.log.pinned));
+  $("btn-log-clear").addEventListener("click", clearLog);
+  $("btn-log-copy").addEventListener("click", async () => {
+    const text = [...$("log-out").children].filter((d) => d.offsetParent !== null).map((d) => d.textContent).join("\n");
+    toast((await copyText(text)) ? "Log copiado" : "No se pudo copiar", false);
+  });
+  $("chk-log-issues").addEventListener("change", (ev) => $("log-out").classList.toggle("only-issues", ev.target.checked));
+  $("inp-log-search").addEventListener("input", filterLog);
+  for (const type of ["wheel", "pointerdown", "keydown"]) {
+    $("log-out").addEventListener(type, () => { state.log.touched = true; }, { passive: true });
+  }
+  setLogPinned(prefs.get("logPinned", false));
 }
 
 // ------------------------------------------------------------ monitor serie
@@ -1602,6 +1893,8 @@ function connectEvents() {
   events.onmessage = (msg) => {
     let ev;
     try { ev = JSON.parse(msg.data); } catch (e) { return; }
+    // Diferencia de relojes PC/placa: para el cronómetro y las fechas relativas.
+    if (ev.ts && !ev.replay) state.clockOffset = Date.now() / 1000 - ev.ts;
     handleEvent(ev);
   };
   events.onerror = async () => {
@@ -1613,7 +1906,7 @@ function connectEvents() {
 function handleEvent(ev) {
   switch (ev.type) {
     case "snapshot":
-      $("log-out").replaceChildren();
+      clearLog();
       $("serial-out").replaceChildren();
       state.job = ev.job && ev.job.state === "running" ? ev.job : null;
       state.gdb = ev.gdb;
@@ -1628,10 +1921,15 @@ function handleEvent(ev) {
       break;
     case "job":
       if (ev.job.state === "running") {
+        const same = !!state.job && state.job.id === ev.job.id;
+        if (!same) onJobStarted(ev.job);
         state.job = ev.job;
+        renderJob(same);
+        break;
       } else {
         state.job = null;
-        showResult(ev.job);
+        state.lastJob = ev.job;
+        onJobFinished(ev.job);
         loadHistory();
         if (state.method === "dfu") refreshProbes();
       }
@@ -1711,6 +2009,7 @@ function showTab(name, opts) {
   if (name === "serial") loadSerial();
   document.querySelector(".col-right").classList.toggle("debugging", name === "debug");
   if (name === "debug") loadDebugSources();
+  if (name === "files" && state.scrollToFile) renderFiles();
 }
 
 function bindUI() {
@@ -1722,12 +2021,38 @@ function bindUI() {
   $("sel-probe").addEventListener("change", (ev) => { prefs.set("probe", ev.target.value); renderProbes(); });
   $("btn-refresh-probes").addEventListener("click", refreshProbes);
   $("btn-refresh-ports").addEventListener("click", refreshProbes);
-  $("sel-prog-port").addEventListener("change", (ev) => prefs.set("progport." + state.chip, ev.target.value));
+  $("sel-prog-port").addEventListener("change", (ev) => { prefs.set("progport." + state.chip, ev.target.value); renderBoardSummary(); });
+  $("sel-dfu").addEventListener("change", renderBoardSummary);
   $("btn-refresh-dfu").addEventListener("click", refreshProbes);
   for (const btn of document.querySelectorAll("[data-action]")) {
     btn.addEventListener("click", () => busy(btn, () => runAction(btn.dataset.action)));
   }
   $("btn-cancel").addEventListener("click", () => api("POST", "/api/jobs/cancel").catch((e) => toast(e.message, true)));
+  $("btn-job-log").addEventListener("click", () => setLogOpen(true));
+  $("btn-job-close").addEventListener("click", dismissResult);
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) return;
+    state.titleFlag = false;
+    updateTitle();
+    scheduleDismiss();
+  });
+  // Placa: plegar a resumen / desplegar para cambiar.
+  $("btn-board-toggle").addEventListener("click", () => {
+    const collapse = !$("board-form").hidden;
+    setBoardCollapsed(collapse);
+    if (!collapse) $("sel-chip").focus();
+  });
+  $("board-summary").addEventListener("click", () => { setBoardCollapsed(false); $("sel-chip").focus(); });
+  $("btn-side-collapse").addEventListener("click", () => setSideCollapsed(true, true));
+  $("btn-side-expand").addEventListener("click", () => setSideCollapsed(false, true));
+  $("rail-chip").addEventListener("click", () => { setSideCollapsed(false); setBoardCollapsed(false); $("sel-chip").focus(); });
+  $("btn-fw-change").addEventListener("click", () => {
+    state.scrollToFile = true;
+    showTab("files");
+    renderFiles();
+    const row = document.querySelector(".file-row.selected .name");
+    (row || $("inp-filter")).focus();
+  });
   $("btn-boot-cancel").addEventListener("click", () => api("POST", "/api/jobs/cancel").catch((e) => toast(e.message, true)));
   $("dlg-boot").addEventListener("cancel", (ev) => ev.preventDefault());  // Esc no lo cierra
   $("confirm-ok").addEventListener("click", () => finishConfirm(true));
@@ -1739,25 +2064,40 @@ function bindUI() {
     toast((await copyText($("gdb-addr").textContent)) ? "Copiado" : "No se pudo copiar", false);
   });
 
-  // Archivos y subida
-  const drop = $("dropzone");
-  $("btn-pick").addEventListener("click", (ev) => { ev.stopPropagation(); $("file-input").click(); });
-  // Toda la zona abre el selector (salvo los controles de adentro); con el teclado, Enter o Espacio.
-  drop.addEventListener("click", (ev) => { if (!ev.target.closest("select, input, label, button")) $("file-input").click(); });
-  drop.addEventListener("keydown", (ev) => {
-    if (ev.target === drop && (ev.key === "Enter" || ev.key === " ")) { ev.preventDefault(); $("file-input").click(); }
-  });
+  // Archivos y subida: botones, o soltar archivos/carpetas en cualquier parte de la pestaña.
+  const drop = $("tab-files");
+  const overlay = $("drop-overlay");
+  const isFileDrag = (ev) => !!ev.dataTransfer && [...ev.dataTransfer.types].includes("Files");
+  let dragDepth = 0;
+  $("btn-pick").addEventListener("click", () => $("file-input").click());
   $("file-input").addEventListener("change", (ev) => { uploadFiles([...ev.target.files]); ev.target.value = ""; });
-  $("btn-pick-dir").addEventListener("click", (ev) => { ev.stopPropagation(); $("dir-input").click(); });
+  $("btn-pick-dir").addEventListener("click", () => $("dir-input").click());
   $("dir-input").addEventListener("change", (ev) => {
     const files = [...ev.target.files];
     ev.target.value = "";
     if (files.length) uploadEspProject(espFromFileList(files));
   });
-  ["dragenter", "dragover"].forEach((t) => drop.addEventListener(t, (ev) => { ev.preventDefault(); drop.classList.add("over"); }));
-  ["dragleave", "drop"].forEach((t) => drop.addEventListener(t, () => drop.classList.remove("over")));
+  drop.addEventListener("dragenter", (ev) => {
+    if (!isFileDrag(ev)) return;
+    ev.preventDefault();
+    dragDepth += 1;
+    overlay.hidden = false;
+  });
+  drop.addEventListener("dragover", (ev) => {
+    if (!isFileDrag(ev)) return;
+    ev.preventDefault();
+    ev.dataTransfer.dropEffect = "copy";
+  });
+  drop.addEventListener("dragleave", () => {
+    dragDepth = Math.max(0, dragDepth - 1);
+    if (!dragDepth) overlay.hidden = true;
+  });
+  // Arrastrar archivos sobre otra pestaña lleva a Archivos.
+  window.addEventListener("dragenter", (ev) => { if (isFileDrag(ev) && state.tab !== "files") showTab("files"); });
   drop.addEventListener("drop", (ev) => {
     ev.preventDefault();
+    dragDepth = 0;
+    overlay.hidden = true;
     // Hay que leer todo antes del primer await: después el navegador vacía dataTransfer.
     const entries = [...ev.dataTransfer.items].map((it) => it.webkitGetAsEntry && it.webkitGetAsEntry()).filter(Boolean);
     const files = [...ev.dataTransfer.files];
@@ -1771,6 +2111,8 @@ function bindUI() {
   $("inp-project").addEventListener("change", (ev) => prefs.set("project", ev.target.value));
   $("inp-project").value = prefs.get("project", "general");
   $("inp-filter").addEventListener("input", renderFiles);
+  $("chk-only-chip").checked = prefs.get("onlyChip", false);
+  $("chk-only-chip").addEventListener("change", (ev) => { prefs.set("onlyChip", ev.target.checked); renderFiles(); });
   $("btn-refresh-files").addEventListener("click", loadFiles);
 
   // Serie
@@ -1818,15 +2160,7 @@ function bindUI() {
   });
 
   // Log
-  $("btn-log-clear").addEventListener("click", () => $("log-out").replaceChildren());
-  $("btn-log-toggle").addEventListener("click", () => {
-    const panel = $("log-panel");
-    panel.classList.toggle("collapsed");
-    const collapsed = panel.classList.contains("collapsed");
-    $("btn-log-toggle").textContent = collapsed ? "Mostrar" : "Ocultar";
-    prefs.set("logCollapsed", collapsed);
-  });
-  if (prefs.get("logCollapsed", false)) $("btn-log-toggle").click();
+  bindLog();
 
   // Pestañas y energía
   const tabButtons = [...document.querySelectorAll(".tabs button")];
@@ -1843,7 +2177,12 @@ function bindUI() {
       target.focus();
     });
   }
-  window.addEventListener("popstate", () => showTab(HASH_TAB[location.hash.slice(1)] || "files", { fromHash: true }));
+  const fromHash = () => {
+    const name = HASH_TAB[location.hash.slice(1)] || "files";
+    if (name !== state.tab) showTab(name, { fromHash: true });
+  };
+  window.addEventListener("popstate", fromHash);
+  window.addEventListener("hashchange", fromHash);   // también si se escribe #historial a mano
   bindSplitter();
   $("btn-poweroff").addEventListener("click", () => powerAction("poweroff"));
   $("btn-reboot").addEventListener("click", () => powerAction("reboot"));
@@ -1900,12 +2239,14 @@ async function init() {
   }
   state.config = await api("GET", "/api/config");
   renderConfig();
+  setBoardCollapsed(prefs.get("boardCollapsed", false));
+  setSideCollapsed(prefs.get("sideCollapsed", false));
   connectEvents();
   await Promise.all([refreshProbes(), loadFiles(), loadSerial(), loadSystem()]);
   const savedFile = prefs.get("file", null);
   if (!state.file && savedFile) {
     const f = state.projects.flatMap((p) => p.files).find((x) => x.path === savedFile);
-    if (f) { setFile(f); renderFiles(); }
+    if (f) { state.scrollToFile = true; setFile(f); renderFiles(); }
   }
   const fromUrl = HASH_TAB[location.hash.slice(1)];
   showTab(fromUrl || prefs.get("tab", "files"), { fromHash: !!fromUrl });

@@ -2,7 +2,7 @@
 # cada arranque inventa una MAC). La instala scripts/fijar_mac.sh; la MAC está en
 # /etc/stm32-bench/mac.conf.
 [Unit]
-Description=MAC fija para @IFACE@ (banco STM32)
+Description=MAC fija para @IFACE@ (banco remoto)
 DefaultDependencies=no
 Wants=network-pre.target
 Before=network-pre.target

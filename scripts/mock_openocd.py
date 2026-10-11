@@ -177,12 +177,12 @@ def main(argv):
             size = os.path.getsize(path)
             out(f"[{cpu}] halted due to debug-request, current mode: Thread", 0.2)
             out("xPSR: 0x01000000 pc: 0x08000100 msp: 0x20020000")
+            # Como el OpenOCD real: marcas de etapa, sin porcentaje de avance.
             out("** Programming Started **", 0.3)
-            out(f"Info : Device: STM32 (mock), flash size probed value 1024k")
-            for pct in (25, 50, 75, 100):
-                out(f"Info : writing... {pct}%", 0.3)
+            out("Info : Device: STM32 (mock)")
+            out("Info : flash size probed value 1024k", 1.0)
             out("** Programming Finished **")
-            out("** Verify Started **", 0.4)
+            out("** Verify Started **", 0.6)
             if "falla" in os.path.basename(path):
                 out("Error: checksum mismatch - attempting binary compare")
                 out("diff 0 address 0x08000400. Was 0xff instead of 0x12")

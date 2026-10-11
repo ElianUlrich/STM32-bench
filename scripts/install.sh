@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Instalación del banco STM32 en la BeagleBoard-xM (Debian armhf).
+# Instalación del banco remoto en la BeagleBoard-xM (Debian armhf).
 #
 #   sudo scripts/install.sh
 #

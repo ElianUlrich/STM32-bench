@@ -8,6 +8,7 @@ ciegas desde remoto es más peligroso que útil.
 from __future__ import annotations
 
 import asyncio
+import re
 import threading
 import time
 import uuid
@@ -17,6 +18,28 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional, Sequence
 from ..events import EventBus
 from ..history import History
 from ..procs import StreamingProcess
+from ..progress import Tracker
+
+
+# Líneas que explican una falla, en la salida de OpenOCD, esptool, dfu-util o avrdude.
+_FAILURE_LINE = re.compile(
+    r"\b(error|fatal|failed|fail|mismatch|unable|cannot|can't|denied|not responding|not in sync|timed out|timeout)\b"
+    r"|no dfu capable", re.IGNORECASE)
+_DECORATION = re.compile(r"^\*+\s*|\s*\*+$")
+_ERROR_PREFIX = re.compile(r"^error\s*:\s*", re.IGNORECASE)
+
+
+def failure_reason(output: str, limit: int = 200) -> Optional[str]:
+    """La última línea que explica la falla de una herramienta, limpia ("** Verify Failed **"
+    -> "Verify Failed", "Error: x" -> "x"), o None si no hay ninguna."""
+    for raw in reversed((output or "").splitlines()):
+        line = raw.strip()
+        if not line or not _FAILURE_LINE.search(line):
+            continue
+        line = _ERROR_PREFIX.sub("", _DECORATION.sub("", line)).strip()
+        if line:
+            return line if len(line) <= limit else line[:limit - 1] + "…"
+    return None
 
 
 class BusyError(RuntimeError):
@@ -44,9 +67,13 @@ class Job:
     state: str = "running"          # running | ok | error | cancelled
     message: str = ""
     warnings: List[str] = field(default_factory=list)
+    # Mientras corre: etapa y porcentaje (progress.Tracker.snapshot()).
+    progress: Optional[Dict[str, Any]] = None
 
     def to_public(self) -> Dict[str, Any]:
         data = asdict(self)
+        if data["progress"] is None:
+            del data["progress"]
         if self.finished:
             data["duration_s"] = round(self.finished - self.started, 2)
         return data
@@ -66,11 +93,14 @@ class JobContext:
         self.job = job
         self.cancel_event = threading.Event()
         self._process: Optional[StreamingProcess] = None
+        self._tracker: Optional[Tracker] = None
 
     # --- log y avisos -------------------------------------------------------
-    def log(self, message: str, level: str = "info", source: str = "app") -> None:
-        self.runner.bus.publish({"type": "log", "source": source, "level": level,
-                                 "line": message, "job": self.job.id})
+    def log(self, message: str, level: str = "info", source: str = "app", progress: bool = False) -> None:
+        event = {"type": "log", "source": source, "level": level, "line": message, "job": self.job.id}
+        if progress:
+            event["progress"] = True        # actualización de avance: la interfaz pisa la anterior
+        self.runner.bus.publish(event)
 
     def warn(self, message: str) -> None:
         self.job.warnings.append(message)
@@ -83,6 +113,27 @@ class JobContext:
 
     def close_prompt(self) -> None:
         self.runner.bus.publish({"type": "prompt", "open": False, "job": self.job.id})
+
+    # --- progreso -----------------------------------------------------------
+    def track(self, tracker: Optional[Tracker]) -> None:
+        """Desde ahora, la salida de los comandos actualiza la etapa y el porcentaje del trabajo."""
+        self._tracker = tracker
+        self._publish_progress()
+
+    def _publish_progress(self) -> None:
+        if self.job.finished:      # una línea tardía del lector no "revive" un trabajo terminado
+            return
+        self.job.progress = self._tracker.snapshot() if self._tracker is not None else None
+        self.runner.bus.publish({"type": "job", "job": self.job.to_public()})
+
+    def _output(self, line: str, source: str) -> None:
+        """Una línea de un comando (corre en el hilo lector del proceso)."""
+        progress = False
+        if self._tracker is not None:
+            changed, progress = self._tracker.feed(line)
+            if changed:
+                self._publish_progress()
+        self.log(line, level="out", source=source, progress=progress)
 
     # --- cancelación --------------------------------------------------------
     def check_cancelled(self) -> None:
@@ -111,7 +162,7 @@ class JobContext:
         self.log("$ " + " ".join(_quote_for_log(a) for a in argv), level="cmd", source=source)
         proc = StreamingProcess(
             argv,
-            on_line=lambda line: self.log(line, level="out", source=source),
+            on_line=lambda line: self._output(line, source),
             env_extra=self.runner.env_extra,
         )
         try:
@@ -134,7 +185,9 @@ class JobContext:
             self._process = None
         result = ProcessResult(returncode=proc.poll() or 0, output=proc.output())
         if check and result.returncode != 0:
-            raise JobFailed(f"{source} terminó con código {result.returncode}")
+            reason = failure_reason(result.output)
+            raise JobFailed(f"{source} falló: {reason}" if reason
+                            else f"{source} terminó con código {result.returncode}")
         return result
 
 
@@ -198,6 +251,7 @@ class JobRunner:
             ctx.log(f"✘ {job.message}", level="error")
         finally:
             ctx.close_prompt()
+            job.progress = None
             job.finished = time.time()
             self.history.add(job.to_public())
             self._current = None

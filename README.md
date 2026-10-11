@@ -1,4 +1,4 @@
-# Banco STM32 — programación y debug remoto sobre BeagleBoard-xM
+# Banco remoto — programación y depuración de microcontroladores sobre BeagleBoard-xM
 
 Aplicación web que convierte una **BeagleBoard-xM** (headless, sin pantalla ni teclado) en un banco
 de programación y depuración remota de microcontroladores **STM32**, **ESP32/ESP8266** y
@@ -274,14 +274,20 @@ Opcional:
 
 ## Uso de la interfaz
 
-- **Target**: elegí el chip, el **método** (ST-Link/SWD o USB DFU; solo se habilitan los que el chip
+- **Placa**: elegí el chip, el **método** (ST-Link/SWD o USB DFU; solo se habilitan los que el chip
   declara en `chips.yaml`), la interfaz de OpenOCD y el **ST-Link** (se detectan todos los conectados
   por número de serie; con más de uno hay que elegir). Con DFU, se listan los dispositivos en modo
-  DFU (`dfu-util -l`) o se deja en "Automático".
-- **Archivos**: elegí **para qué placa es** y arrastrá el archivo a la zona de subida (va a
-  `proyectos/_subidos/<proyecto>/`), o elegí uno de los proyectos sincronizados y asignale la placa
-  en su fila. Al elegir un archivo, la placa se selecciona sola. Solo se pueden **borrar** los
-  subidos desde la web.
+  DFU (`dfu-util -l`) o se deja en "Automático". Con **Listo**, la tarjeta se pliega a un resumen de
+  dos líneas (placa, método y programador, con aviso si falta algo); **Cambiar** la despliega.
+- **Columna plegable**: el ícono de la tarjeta Placa pliega la columna izquierda a un riel con la
+  placa y los botones Flashear, Verificar y Reset, para dar más lugar a la lista, el código o las
+  consolas. Los botones de acción quedan siempre visibles abajo de la columna.
+- **Archivos**: **Subir firmware** o **Carpeta ESP-IDF**, o soltá archivos y carpetas en cualquier
+  parte de la pestaña (si arrastrás sobre otra pestaña, se cambia sola a Archivos). Los subidos van a
+  `proyectos/_subidos/<proyecto>/`. Los proyectos se pliegan con un clic; el buscador filtra por
+  nombre o placa y **Sólo esta placa** deja los de la placa elegida. La placa de cada archivo es una
+  etiqueta: con un clic se cambia. Al elegir un archivo, la placa se selecciona sola, y el archivo
+  elegido queda a la vista. Solo se pueden **borrar** los subidos desde la web.
 - **ESP32 / Arduino**: elegí el **puerto serie** de la placa (se listan con su VID:PID). Si el monitor
   serie tiene ese puerto abierto, la app lo cierra mientras graba y lo vuelve a abrir al terminar.
 - **Acciones**: Flashear (program + verify + reset), Verificar, Borrar flash, Reset, Halt, Run e
@@ -290,9 +296,19 @@ Opcional:
   botones de Reset/Halt/Run y el servidor GDB se deshabilitan y se explica por qué.
 - **Un solo trabajo a la vez**: si el programador está ocupado, el pedido se rechaza (no se encola).
   Se puede **cancelar** el trabajo en curso.
-- **Servidor GDB**: Iniciar/Detener; muestra `IP:puerto` para conectarse. Si querés flashear por SWD
-  con el servidor activo, la app avisa y ofrece detenerlo.
-- **Log en vivo** (Server-Sent Events) de OpenOCD/dfu-util e **historial** de operaciones con resultado.
+- **Progreso**: debajo de las pestañas aparece la operación en curso con su **etapa** (Conectar,
+  Borrar, Escribir, Verificar, Reiniciar), el **porcentaje** cuando la herramienta lo informa (esptool,
+  dfu-util, avrdude; OpenOCD sólo informa etapas), el tiempo y **Cancelar**. El avance también se ve en
+  el indicador de arriba y en el título de la pestaña del navegador. Al terminar queda el resultado
+  (verde o rojo, con la duración y **Ver log**); si falló, dice el motivo que dio la herramienta (por
+  ejemplo `openocd falló: Verify Failed`). Lo lee `app/progress.py` de la salida de cada herramienta.
+- **Servidor GDB** (pestaña *Depurar*, sección plegable "Servidor GDB para VS Code o CubeIDE"):
+  Iniciar/Detener; muestra `IP:puerto` para conectarse. Si querés flashear por SWD con el servidor
+  activo, la app avisa y ofrece detenerlo.
+- **Log en vivo** (Server-Sent Events): plegado a una línea con el último mensaje y un contador de
+  errores; se abre solo si una operación falla. Abierto, permite buscar, ver sólo errores y avisos,
+  copiar y fijarlo abierto. Las líneas de avance (`Writing at ... (45 %)`) se pisan en vez de apilarse.
+  El **historial** guarda cada operación con su resultado.
 - **Monitor serie**: puerto USB-serie (p. ej. el VCP de la Nucleo, `/dev/ttyACM0`), baudrate
   configurable y envío de texto con LF/CRLF/CR.
 - **Sistema**: IP, uptime, temperatura (si el kernel la expone), RAM, disco, versiones de OpenOCD y
@@ -645,7 +661,7 @@ En Windows, `arm-none-eabi-gdb.exe` viene con STM32CubeIDE (en
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Banco STM32 (remoto)",
+      "name": "Banco remoto (STM32)",
       "type": "cortex-debug",
       "request": "launch",
       "servertype": "external",
@@ -658,7 +674,7 @@ En Windows, `arm-none-eabi-gdb.exe` viene con STM32CubeIDE (en
       "overrideRestartCommands": ["monitor reset halt"]
     },
     {
-      "name": "Banco STM32 (adjuntar sin cargar)",
+      "name": "Banco remoto (adjuntar sin cargar)",
       "type": "cortex-debug",
       "request": "attach",
       "servertype": "external",
@@ -780,6 +796,7 @@ Otras fallas simuladas: `BENCH_MOCK_FAIL=connect` (OpenOCD no conecta al target)
 python -m venv .venv
 .venv/Scripts/python -m pip install -r requirements-dev.txt    # Windows (.venv/bin/... en Linux)
 .venv/Scripts/python -m pytest
+node --test "tests/js/*.test.js"                                  # funciones de la web (Node 18+)
 ```
 
 Cubren: validación de archivos y path traversal, construcción de comandos de OpenOCD y dfu-util
@@ -791,7 +808,10 @@ de ESP32, Uno, Leonardo, ISP e identificación de STM32 con los simuladores (`mo
 `mock_avrdude.py`, `mock_openocd.py`). Para el depurador: el protocolo GDB/MI, la validación de
 expresiones y asignaciones, la lectura de fuentes y líneas del `.elf` (DWARF 3 y 5, rutas de Windows),
 la subida de proyectos `.zip` (rutas maliciosas, límites) y sesiones completas con `mock_gdb.py`
-(breakpoints, paso a paso, variables, pausa, reset, chip equivocado).
+(breakpoints, paso a paso, variables, pausa, reset, chip equivocado). El progreso de los trabajos se
+prueba con la salida real de OpenOCD, esptool, dfu-util y avrdude (`tests/test_progress.py`), y las
+funciones puras de la web (`web/ui-utils.js`: fechas relativas, nombres cortos de placa, textos de
+progreso, filtro de archivos) con `node --test`.
 
 ## Estructura del repositorio
 

@@ -55,8 +55,9 @@ def test_debug_gets_rtt_when_server_was_started_without_it(client):
     r = client.post("/api/debug/start", json={"chip": "stm32h503cb", "probe_serial": SERIAL, "file": RTT_ELF,
                                               "mode": "attach"})
     assert r.status_code == 200, r.text
-    st = client.get("/api/gdb").json()
-    assert st["rtt"]["address"] == "0x20000430" and st["rtt_state"] == "encontrado"
+    # OpenOCD avisa que encontró el bloque RTT un instante después de arrancar.
+    st = wait_gdb(client, lambda s: s["rtt_state"] == "encontrado")
+    assert st["rtt"]["address"] == "0x20000430"
     client.post("/api/debug/stop")
     client.post("/api/gdb/stop")
 
