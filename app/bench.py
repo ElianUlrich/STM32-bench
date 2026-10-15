@@ -39,6 +39,7 @@ from .programmers import avrdude as avr_cmd, base, dfu as dfu_cmd, esptool as es
 from .programmers.gdbserver import GdbServer, GdbServerBusy, GdbServerError, ServerTarget
 from .programmers.runner import BusyError, Job, JobContext, JobFailed, JobRunner, failure_reason, new_job
 from .progress import tracker_for
+from .reading import ChipReader
 from .serial_monitor import SerialError, SerialManager
 from .settings import BenchConfig, ConfigError, InterfaceConfig, Settings, load_bench_config
 
@@ -65,6 +66,7 @@ class JobRequest:
     leave: bool = True
     stop_gdb: bool = False
     esp_scope: Optional[str] = None     # proyecto ESP-IDF: "file" (sólo el elegido) o "all"
+    read_scope: Optional[str] = None    # leer un ESP: "identify" (rápido) o "full" (copia completa)
 
 
 def parse_address(text: Optional[str]) -> Optional[int]:
@@ -124,6 +126,7 @@ class Bench:
         self.bus = EventBus()
         self.history = History(settings.state_dir / "history.jsonl", self.cfg.history_max_entries)
         self.meta = FirmwareMeta(settings.state_dir / "firmware_meta.json")
+        self.reader = ChipReader(self)
         self.runner = JobRunner(self.bus, self.history, self.env_extra)
         self.gdb = GdbServer(self.bus, self.env_extra)
         self.debug = DebugSession(self.bus, self.env_extra)
@@ -225,7 +228,9 @@ class Bench:
             compat = self.check_binding(req.file, firmware, chip,
                                         esp_address=parse_address(req.address) if chip.esptool else None)
 
-        if method == "swd":
+        if req.action == base.READ:
+            job, fn = await self.reader.prepare(chip, req, method)
+        elif method == "swd":
             job, fn = await self._prepare_swd(chip, req, firmware)
         elif method == "dfu":
             job, fn = self._prepare_dfu(chip, req, firmware)
@@ -458,12 +463,30 @@ class Bench:
                                       source="dfu-util", timeout_s=timeout)
                         _compare(bin_path.read_bytes(), readback.read_bytes() if readback.exists() else b"", bin_addr)
                         message = "Verificación OK"
+                    elif action == base.READ:
+                        rid, folder = self.reader.store.create()
+                        flash_path = folder / "flash.bin"
+                        try:
+                            await ctx.run(dfu_cmd.upload_args(target, dfu.address, chip.flash_size, flash_path),
+                                          source="dfu-util", timeout_s=timeout)
+                            data = flash_path.read_bytes()
+                        except BaseException:
+                            self.reader.store.discard(rid)
+                            raise
+                        identity = [{"label": "Chip", "value": chip.name},
+                                    {"label": "Dispositivo DFU",
+                                     "value": f"{device.vid_pid} · serie {device.serial or '?'}"},
+                                    {"label": "Flash",
+                                     "value": f"{chip.flash_size // 1024} KB desde 0x{dfu.address:08X}"}]
+                        report = self.reader.flash_report(rid, chip, "dfu", data, dfu.address, identity)
+                        ctx.job.result = {"readback": rid}
+                        message = report["summary"]["text"]
                     else:
                         await ctx.run(dfu_cmd.mass_erase_args(target, dfu.address),
                                       source="dfu-util", timeout_s=timeout)
                         message = "Flash borrada"
 
-                    if not left and boot.needs_dfu_leave and action == base.VERIFY:
+                    if not left and boot.needs_dfu_leave and action in (base.VERIFY, base.READ):
                         result = await ctx.run(dfu_cmd.leave_args(target, dfu.address),
                                                source="dfu-util", timeout_s=30, check=False)
                         left = result.returncode == 0

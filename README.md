@@ -564,6 +564,34 @@ sudo bash scripts/fijar_mac.sh --quitar
 Conviene además reservar una IP para esa MAC en el router (DHCP estático). En *Sistema* se ve la MAC y
 si está fija.
 
+## Leer el micro (pestaña *Micro*)
+
+Responde "¿qué tiene grabado esta placa?" sin tocar lo que hay en la flash. *Leer el micro* lee la
+memoria con la misma herramienta que se usa para grabar y la compara con los archivos asignados a esa
+placa:
+
+| Placa | Cómo se lee | Qué muestra |
+|---|---|---|
+| STM32 por ST-Link | OpenOCD `dump_image` de toda la flash | ID del chip, número de serie (UID), uso de la flash, tabla de vectores (pila inicial y reset) |
+| STM32 por USB DFU | `dfu-util -U` de toda la flash | lo mismo, sin UID |
+| ESP32 (esptool) | *Identificar*: arranque, tabla de particiones y el comienzo de cada app (unos segundos). *Copia completa*: las particiones enteras | chip, MAC, particiones y, por cada app, proyecto, versión, fecha de compilación y versión de ESP-IDF (`esp_app_desc_t`) |
+| Arduino (avrdude) | `-U flash:r` | firma del chip y, por ISP, los fusibles |
+
+El titular dice **"Tiene grabado X"** si la flash coincide con un archivo, **"Coincide con X, y hay más
+datos en la flash"** si el archivo está pero sobra contenido, **"Firmware desconocido"** o **"La flash
+está vacía"**. Entre archivos idénticos (`.elf`, `.hex` y `.bin` del mismo compilado) se muestra el
+último que se grabó desde el banco. En ESP32 la comparación usa el SHA del `.elf` que ESP-IDF guarda en
+la descripción de la app, así que no hace falta leer el programa entero; una app sin descripción se
+compara por sus bytes.
+
+Lo leído se puede descargar, y **Guardar copia en Archivos** lo deja en el proyecto *respaldos*,
+asignado a la placa y listo para volver a grabarse: `.bin` (STM32), `.hex` (Arduino) o una carpeta
+con `flasher_args.json` (ESP32, desde una copia completa; NVS se guarda aparte y no se graba con la copia
+para no pisar los datos del programa).
+
+Si el micro tiene la **protección de lectura** activada (RDP en STM32), la lectura falla y el banco
+lo explica: para sacarla hay que borrar la flash entera.
+
 ## Depurar en la web (pestaña *Depurar*)
 
 Para depurar sin instalar nada en la PC. La app maneja GDB en la placa (en modo MI, la interfaz para
@@ -829,7 +857,10 @@ app/
   debugger/          pestaña Depurar: mi.py (protocolo GDB/MI), session.py (sesión de GDB)
   firmware_meta.py   vínculo archivo -> placa (firmware_meta.json)
   files.py           validación, subida, escaneo, borrado
-  convert.py         .elf/.hex -> .bin (DFU)
+  convert.py         .elf/.hex -> .bin (DFU), .bin -> .hex
+  readback.py        leer el micro: análisis de la flash, coincidencias con archivos, lecturas guardadas
+  reading.py         leer el micro: trabajos por SWD/DFU/esptool/avrdude y copia de respaldo
+  progress.py        etapas y porcentaje de cada trabajo a partir de la salida de las herramientas
   probe.py           ST-Link por sysfs y dispositivos DFU
   programmers/       base (capacidades), openocd.py, dfu.py, esptool.py, avrdude.py (comandos puros),
                      runner.py (un trabajo a la vez), gdbserver.py
@@ -930,6 +961,11 @@ Verificalo en la BeagleBoard:
     → `/dev/ttyACM0`): arrastrar la carpeta en Chrome/Edge/Firefox, la confirmación del navegador al
     elegir una carpeta con el botón, grabar solo el programa y todo el proyecto con esptool 4.12, y
     que los presets en NVS sobrevivan.
+24. **Leer el micro**: `dump_image` del OpenOCD de ST con el micro corriendo (sin detenerlo) en H503
+    y H723; la dirección del UID del **H503** (`0x08FFF800` en `chips.yaml`, sacada de la hoja de datos
+    y sin confirmar); el mensaje real de OpenOCD con RDP nivel 1; el formato de las líneas de progreso
+    de `esptool read_flash` 4.12 con el ESP32-P4; y `avrdude -U flash:r` por bootloader (Uno, Nano
+    viejo, Leonardo), que puede no leer la zona del bootloader.
 
 ## Licencia
 

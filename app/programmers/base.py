@@ -13,9 +13,10 @@ RESET = "reset"
 HALT = "halt"
 RESUME = "resume"
 INFO = "info"
+READ = "read"
 GDB = "gdb"
 
-ACTIONS = (FLASH, VERIFY, ERASE, RESET, HALT, RESUME, INFO)
+ACTIONS = (FLASH, VERIFY, ERASE, RESET, HALT, RESUME, INFO, READ)
 
 ACTION_LABELS: Dict[str, str] = {
     FLASH: "Flashear",
@@ -25,20 +26,21 @@ ACTION_LABELS: Dict[str, str] = {
     HALT: "Halt",
     RESUME: "Run",
     INFO: "Identificar",
+    READ: "Leer el micro",
     GDB: "Servidor GDB",
 }
 
 # Qué puede hacer cada método.
 CAPABILITIES: Dict[str, FrozenSet[str]] = {
     # ST-Link: acceso completo al núcleo.
-    "swd": frozenset({FLASH, VERIFY, ERASE, RESET, HALT, RESUME, INFO, GDB}),
+    "swd": frozenset({FLASH, VERIFY, ERASE, RESET, HALT, RESUME, INFO, READ, GDB}),
     # Bootloader USB de ST: sólo escribe, lee y borra la flash.
-    "dfu": frozenset({FLASH, VERIFY, ERASE}),
+    "dfu": frozenset({FLASH, VERIFY, ERASE, READ}),
     # esptool por el puerto serie: el bootloader de ROM del ESP graba, verifica y borra;
     # el reset se hace con las líneas DTR/RTS del adaptador USB-serie.
-    "esptool": frozenset({FLASH, VERIFY, ERASE, RESET, INFO}),
+    "esptool": frozenset({FLASH, VERIFY, ERASE, RESET, INFO, READ}),
     # avrdude: el bootloader de Arduino graba y verifica; borrar sólo con programador ISP.
-    "avrdude": frozenset({FLASH, VERIFY, ERASE, RESET, INFO}),
+    "avrdude": frozenset({FLASH, VERIFY, ERASE, RESET, INFO, READ}),
 }
 
 UNSUPPORTED_REASON: Dict[str, str] = {

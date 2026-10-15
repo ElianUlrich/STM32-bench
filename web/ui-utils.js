@@ -4,9 +4,10 @@
 (function (root) {
   "use strict";
 
-  const STAGE_STEP = { connect: "Conectar", erase: "Borrar", write: "Escribir", verify: "Verificar", reset: "Reiniciar" };
+  const STAGE_STEP = { connect: "Conectar", erase: "Borrar", write: "Escribir", verify: "Verificar", reset: "Reiniciar",
+    read: "Leer" };
   const STAGE_RUNNING = { connect: "Conectando", erase: "Borrando", write: "Escribiendo", verify: "Verificando",
-    reset: "Reiniciando" };
+    reset: "Reiniciando", read: "Leyendo" };
 
   const pad = (n) => String(n).padStart(2, "0");
 
@@ -91,7 +92,30 @@
     return out;
   }
 
-  const api = { fmtAgo, shortChipName, chipLabels, fmtElapsed, stageLabel, progressText, stepStates, filterProjects };
+  // Tamaño legible: 2.4 KB, 128 KB, 1.5 MB (sin ".0").
+  function fmtBytes(n) {
+    const trim = (x) => x.toFixed(1).replace(/\.0$/, "");
+    if (n < 1024) return `${n} B`;
+    if (n < 1024 * 1024) return `${trim(n / 1024)} KB`;
+    return `${trim(n / 1024 / 1024)} MB`;
+  }
+
+  // "2.4 KB de 128 KB (1.8 %)": cuánto de la flash está usado.
+  function usedText(used, total) {
+    const pct = total ? (used * 100) / total : 0;
+    return `${fmtBytes(used)} de ${fmtBytes(total)} (${pct.toFixed(1).replace(/\.0$/, "")} %)`;
+  }
+
+  // Titular de una lectura del micro: tono, texto e ícono.
+  function readSummary(report) {
+    if (!report || !report.summary) return null;
+    const look = { match: ["ok", "check"], partial: ["ok", "check"], unknown: ["warn", "alert"],
+      empty: ["muted", "info"] }[report.summary.state] || ["muted", "info"];
+    return { tone: look[0], title: report.summary.text, icon: look[1] };
+  }
+
+  const api = { fmtAgo, shortChipName, chipLabels, fmtElapsed, stageLabel, progressText, stepStates, filterProjects,
+    fmtBytes, usedText, readSummary };
   if (typeof module === "object" && module.exports) module.exports = api;
   else root.UI = api;
 })(typeof globalThis !== "undefined" ? globalThis : this);

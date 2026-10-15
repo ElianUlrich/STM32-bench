@@ -570,6 +570,38 @@ label.inline.compact input { width: 120px; }
 .stack li small, .bps li small { color: var(--muted); }
 .bps li .icon-btn { width: 22px; height: 22px; }
 
+/* ---------- pestaña Micro (leer lo que tiene grabado) ---------- */
+.micro-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; flex: 0 0 auto; }
+.micro-intro { display: flex; flex-direction: column; flex: 1 1 260px; min-width: 0; line-height: 1.4; }
+.micro-intro small { color: var(--muted); font-size: 12.5px; }
+.micro-report { display: flex; flex-direction: column; gap: 10px; }
+.micro-summary {
+  display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; border-radius: var(--radius-sm);
+  border: 1px solid var(--border); background: var(--surface-2);
+}
+.micro-summary > .ic { width: 22px; height: 22px; flex: 0 0 auto; margin-top: 1px; }
+.micro-summary.ok { background: var(--ok-soft); border-color: color-mix(in srgb, var(--ok) 30%, transparent); }
+.micro-summary.ok > .ic { color: var(--ok); }
+.micro-summary.warn { background: var(--warn-soft); border-color: color-mix(in srgb, var(--warn) 30%, transparent); }
+.micro-summary.warn > .ic { color: var(--warn); }
+.micro-summary strong { display: block; font-size: 15px; }
+.micro-summary small { display: block; color: var(--muted); font-size: 12.5px; margin-top: 2px; }
+.micro-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 10px; }
+.micro-card { border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); padding: 10px 12px; min-width: 0; }
+.micro-card h3 { font-size: 12px; font-weight: 650; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 0 0 8px; }
+.micro-card.wide { grid-column: 1 / -1; }
+.micro-scroll { overflow-x: auto; margin: 0 -4px; padding: 0 4px; }
+.micro-scroll td.muted { color: var(--muted); }
+.kv { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 14px; margin: 0; font-size: 13px; }
+.kv dt { color: var(--muted); }
+.kv dd { margin: 0; font-family: var(--mono); font-size: 12.5px; word-break: break-word; }
+.micro-files { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.micro-files li { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+.micro-files li span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.micro-files li small { color: var(--muted); font-variant-numeric: tabular-nums; }
+.micro-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+.micro-also { margin: 6px 0 0; padding-left: 18px; font-size: 12.5px; color: var(--text-2); }
+
 /* ---------- historial y sistema ---------- */
 .table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .table th { text-align: left; color: var(--muted); font-weight: 600; font-size: 12px; padding: 7px 10px; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--surface); }

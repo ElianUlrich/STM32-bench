@@ -72,6 +72,7 @@ class SwdParams:
     tcl_vars: Tuple[Tuple[str, str], ...] = ()
     erase_cmds: Tuple[str, ...] = ()
     idcode: Optional[IdCode] = None
+    uid: Optional[int] = None          # dirección del número de serie único de 96 bits
 
 
 @dataclass(frozen=True)
@@ -241,6 +242,8 @@ def _parse_swd(raw: Any, where: str, interfaces: Optional[Mapping[str, Any]]) ->
         tcl_vars=tuple(tcl_vars),
         erase_cmds=tuple(erase_cmds),
         idcode=_parse_idcode(_get(raw, "idcode"), f"{where}.idcode"),
+        uid=(None if _get(raw, "uid") is None
+             else _as_int(_get(raw, "uid"), f"{where}.uid", 0, 0xFFFFFFF0)),
     )
 
 

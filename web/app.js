@@ -337,6 +337,7 @@ function updateMethodUI() {
     btn.setAttribute("aria-checked", btn.dataset.method === m ? "true" : "false");
   }
   $("swd-fields").hidden = m !== "swd";
+  $("read-scope-field").hidden = m !== "esptool";
   $("dfu-fields").hidden = m !== "dfu";
   $("serial-fields").hidden = !usesSerialPort(chip, m);
   $("isp-note").hidden = !(m === "avrdude" && chip && chip.avrdude && chip.avrdude.isp);
@@ -891,6 +892,7 @@ async function runAction(action, extra) {
   } else if (usesSerialPort(chip, state.method)) {
     body.serial_port = $("sel-prog-port").value || null;
   }
+  if (action === "read" && state.method === "esptool") body.read_scope = $("sel-read-scope").value;
   if (FILE_ACTIONS.includes(action)) {
     body.file = state.file.path;
     if (state.file.esp && state.method === "esptool") body.esp_scope = $("sel-esp-scope").value;
@@ -944,6 +946,9 @@ function renderJob(progressOnly) {
     $("job-desc").title = job.description;
     $("btn-cancel").hidden = !running;
     $("btn-job-log").hidden = !!running;
+    const isRead = !running && job.action === "read" && job.state === "ok";
+    $("btn-job-log").replaceChildren(icon(isRead ? "chip" : "terminal"), isRead ? "Ver informe" : "Ver log");
+    $("btn-job-log").dataset.target = isRead ? "micro" : "log";
     $("btn-job-close").hidden = !!running;
     $("job-time").hidden = !running;
     renderJobProgress(running ? job.progress : null, !!running, job.state);
@@ -1706,6 +1711,112 @@ function appendSerial(text, meta) {
   if (stick) out.scrollTop = out.scrollHeight;
 }
 
+// ------------------------------------------------------------- leer el micro
+
+const METHOD_NAMES = { swd: "ST-Link (SWD)", dfu: "USB DFU", esptool: "esptool", avrdude: "avrdude" };
+
+async function loadReadback() {
+  try {
+    const data = await api("GET", "/api/readback");
+    state.readback = data.report;
+    renderReadback();
+  } catch (e) {
+    toast(e.message, true);
+  }
+}
+
+function kvList(rows) {
+  const dl = el("dl", { class: "kv" });
+  for (const r of rows) dl.append(el("dt", {}, r.label), el("dd", {}, r.value));
+  return dl;
+}
+
+function renderReadback() {
+  const box = $("micro-report");
+  const r = state.readback;
+  if (!r) {
+    box.replaceChildren(el("div", { class: "empty-state" },
+      "Todavía no se leyó ninguna placa. Elegí la placa y el programador y tocá ", el("strong", {}, "Leer el micro"), "."));
+    return;
+  }
+  const look = UI.readSummary(r);
+  const when = UI.fmtAgo(r.time, Date.now() - state.clockOffset * 1000);
+  const summary = el("div", { class: "micro-summary " + look.tone }, icon(look.icon),
+    el("div", {}, el("strong", {}, look.title),
+      el("small", {}, `${r.chip_name} · ${METHOD_NAMES[r.method] || r.method} · leído ${when}`
+        + (r.scope === "identify" ? " · identificación rápida" : ""))));
+  const others = (r.matches || []).slice(1).map((m) => m.path);
+  if (others.length) {
+    summary.lastElementChild.append(el("ul", { class: "micro-also" },
+      ...others.slice(0, 4).map((p) => el("li", {}, `También coincide: ${p}`))));
+  }
+  const cards = [el("section", { class: "micro-card" }, el("h3", {}, "Identidad"), kvList(r.identity || []))];
+  const fw = r.firmware;
+  if (fw) {
+    const rows = [{ label: "Usado", value: UI.usedText(fw.used, fw.size) }];
+    if (fw.vectors) {
+      rows.push({ label: "Pila inicial", value: fw.vectors.sp }, { label: "Reset", value: fw.vectors.reset });
+    }
+    const card = el("section", { class: "micro-card" }, el("h3", {}, "Contenido de la flash"), kvList(rows));
+    const fill = el("i");
+    fill.style.width = Math.min(100, fw.size ? (fw.used * 100) / fw.size : 0) + "%";
+    card.append(el("div", { class: "bar" }, fill));
+    cards.push(card);
+  }
+  if (r.esp) {
+    const apps = r.esp.apps || [];
+    cards.push(el("section", { class: "micro-card wide" }, el("h3", {}, "Aplicaciones (ESP-IDF)"),
+      apps.length ? el("div", { class: "micro-scroll" }, el("table", { class: "table" },
+        el("thead", {}, el("tr", {}, ...["Partición", "Proyecto", "Versión", "Compilado", "ESP-IDF"].map((h) => el("th", {}, h)))),
+        el("tbody", {}, ...apps.map((a) => el("tr", {},
+          el("td", {}, `${a.partition} (${a.offset})`),
+          ...(a.project || a.version
+            ? [el("td", {}, a.project || "—"), el("td", {}, a.version || "—"),
+              el("td", {}, a.date ? `${a.date} ${a.time || ""}` : "—"), el("td", {}, a.idf || "—")]
+            : [el("td", { colspan: "4", class: "muted" }, "Sin descripción: se compara por su contenido")]))))))
+        : el("p", { class: "note" }, "No se encontró ninguna aplicación.")));
+    const parts = r.esp.partitions || [];
+    if (parts.length) {
+      cards.push(el("section", { class: "micro-card wide" }, el("h3", {}, `Particiones (tabla en ${r.esp.table})`),
+        el("div", { class: "micro-scroll" }, el("table", { class: "table" },
+          el("thead", {}, el("tr", {}, ...["Nombre", "Tipo", "Dirección", "Tamaño"].map((h) => el("th", {}, h)))),
+          el("tbody", {}, ...parts.map((p) => el("tr", {},
+            el("td", {}, p.name), el("td", {}, `${p.type} · ${p.subtype}`), el("td", {}, p.offset),
+            el("td", {}, UI.fmtBytes(p.size)))))))));
+    }
+  }
+  const files = el("section", { class: "micro-card wide" }, el("h3", {}, "Lo leído"),
+    el("ul", { class: "micro-files" }, ...(r.files || []).map((f) => el("li", {},
+      icon("file"), el("span", { title: f.name }, `${f.label} — ${f.name}`), el("small", {}, `${f.address} · ${UI.fmtBytes(f.size)}`),
+      el("a", { class: "btn small ghost", href: `/api/readback/${r.id}/files/${encodeURIComponent(f.name)}`, download: "" },
+        "Descargar")))));
+  const actions = el("div", { class: "micro-actions" });
+  if (r.can_save) {
+    actions.append(el("button", { class: "btn small", type: "button", onclick: (ev) => busy(ev.currentTarget, saveReadback) },
+      icon("upload"), "Guardar copia en Archivos"),
+      el("small", { class: "muted" }, "Queda en el proyecto \"respaldos\", asignada a esta placa, lista para volver a grabarla."));
+  } else if (r.scope === "identify") {
+    actions.append(el("small", { class: "muted" }, "Para guardar una copia de respaldo, elegí \"Copia completa\" y leé de nuevo."));
+  }
+  files.append(actions);
+  cards.push(files);
+  const warns = (r.warnings || []).map((w) => el("li", {}, w));
+  if (warns.length) cards.push(el("section", { class: "micro-card wide" }, el("h3", {}, "Avisos"), el("ul", { class: "micro-also" }, ...warns)));
+  box.replaceChildren(summary, el("div", { class: "micro-grid" }, ...cards));
+}
+
+async function saveReadback() {
+  const r = state.readback;
+  if (!r) return;
+  try {
+    const res = await api("POST", `/api/readback/${r.id}/save`);
+    toast(`Copia guardada: ${res.path}`);
+    await loadFiles();
+  } catch (e) {
+    toast(e.message, true);
+  }
+}
+
 // ------------------------------------------------------------------ historial
 
 async function loadHistory() {
@@ -1930,6 +2041,7 @@ function handleEvent(ev) {
         state.job = null;
         state.lastJob = ev.job;
         onJobFinished(ev.job);
+        if (ev.job.action === "read") loadReadback();
         loadHistory();
         if (state.method === "dfu") refreshProbes();
       }
@@ -1986,7 +2098,8 @@ function handlePrompt(ev) {
 
 // ------------------------------------------------------------ pestañas / UI
 
-const TAB_HASH = { files: "archivos", debug: "depurar", serial: "serie", history: "historial", system: "sistema" };
+const TAB_HASH = { files: "archivos", debug: "depurar", micro: "micro", serial: "serie", history: "historial",
+  system: "sistema" };
 const HASH_TAB = Object.fromEntries(Object.entries(TAB_HASH).map(([k, v]) => [v, k]));
 
 function showTab(name, opts) {
@@ -2010,6 +2123,7 @@ function showTab(name, opts) {
   document.querySelector(".col-right").classList.toggle("debugging", name === "debug");
   if (name === "debug") loadDebugSources();
   if (name === "files" && state.scrollToFile) renderFiles();
+  if (name === "micro") loadReadback();
 }
 
 function bindUI() {
@@ -2028,7 +2142,9 @@ function bindUI() {
     btn.addEventListener("click", () => busy(btn, () => runAction(btn.dataset.action)));
   }
   $("btn-cancel").addEventListener("click", () => api("POST", "/api/jobs/cancel").catch((e) => toast(e.message, true)));
-  $("btn-job-log").addEventListener("click", () => setLogOpen(true));
+  $("btn-job-log").addEventListener("click", () => {
+    if ($("btn-job-log").dataset.target === "micro") showTab("micro"); else setLogOpen(true);
+  });
   $("btn-job-close").addEventListener("click", dismissResult);
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) return;

@@ -312,3 +312,47 @@ def test_progress_lines_are_flagged_in_the_log(client):
     writing = [e for e in logs if "Writing at" in e["line"]]
     assert writing and all(e.get("progress") is True for e in writing)
     assert all("progress" not in e for e in logs if "Writing at" not in e["line"])
+
+
+# ----------------------------------------------------------------------- lectura
+
+def test_read_trackers():
+    t = tracker_for("openocd", "read")
+    assert t.snapshot()["stages"] == ["connect", "read"]
+    shots = feed_all(t, """
+Chip verificado: ID 0x474
+dumped 131072 bytes in 2.412s (53.068 KiB/s)
+""")
+    assert stages_seen(shots) == ["read"] and shots[-1]["pct"] == 100
+
+    t = tracker_for("esptool", "read")
+    shots = feed_all(t, """
+Connecting....
+Chip is ESP32-P4 (revision v1.0)
+16384 (25 %)
+65536 (100 %)
+Read 65536 bytes at 0x00000000 in 1.5 seconds (349.5 kbit/s)...
+Hard resetting via RTS pin...
+""")
+    assert stages_seen(shots) == ["read"] and [s["pct"] for s in shots] == [25, 100]
+    assert t.feed("32768 (50 %)")[1] is True
+
+    t = tracker_for("dfu-util", "read")
+    shots = feed_all(t, """
+Uploading from address = 0x08000000, size = 131072
+Upload	[============             ]  50%        65536 bytes
+Upload	[=========================] 100%       131072 bytes
+Upload done.
+""")
+    assert stages_seen(shots) == ["read"] and shots[-1]["pct"] == 100
+
+    t = tracker_for("avrdude", "read")
+    shots = feed_all(t, """
+avrdude: AVR device initialized and ready to accept instructions
+Reading | ################################################## | 100% 0.00s
+avrdude: Device signature = 0x1e950f (probably m328p)
+avrdude: reading flash memory:
+Reading | ################################################## | 100% 4.21s
+avrdude: writing output file "flash.bin"
+""")
+    assert stages_seen(shots) == ["read"] and shots[-1]["pct"] == 100

@@ -17,6 +17,17 @@ SIGNATURES = {"atmega328p": "1e 95 0f", "atmega168": "1e 94 06", "atmega2560": "
 CONNECTED = {"MOCK-ACM1": "atmega328p", "MOCK-ACM2": "atmega32u4", "usb": "atmega328p"}
 
 
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from app import mock_state  # noqa: E402
+from app.convert import convert_to_bin  # noqa: E402
+
+STATE = Path(os.environ.get(mock_state.ENV_VAR, "."))
+FLASH_SIZES = {"atmega328p": 32 * 1024, "atmega168": 16 * 1024, "atmega2560": 256 * 1024,
+               "atmega1280": 128 * 1024, "atmega32u4": 32 * 1024}
+
+
 def out(line, delay=0.04):
     print(line, flush=True)
     time.sleep(delay)
@@ -49,12 +60,26 @@ def main(argv):
         return 1
     if "-e" in argv:
         out("avrdude: erasing chip", 0.8)
+        mock_state.flash_erase(STATE, "avr")
     for op in ops:
         # memoria:modo:archivo:formato (el archivo puede tener ":" en Windows, p. ej. C:\...)
         mem, mode, rest = op.split(":", 2)
         path, fmt = rest.rsplit(":", 1)
+        if mem in ("lfuse", "hfuse", "efuse") and mode == "r":
+            out(f"avrdude: reading {mem} memory:")
+            print({"lfuse": "0xff", "hfuse": "0xde", "efuse": "0xfd"}[mem], flush=True)
+            continue
+        if mem == "flash" and mode == "r":
+            flash_size = FLASH_SIZES.get(part, 32 * 1024)
+            out("avrdude: reading flash memory:")
+            out("Reading | ################################################## | 100% 4.21s", 0.3)
+            Path(path).write_bytes(mock_state.flash_read(STATE, "avr", 0, flash_size))
+            out(f'avrdude: writing output file "{path}"')
+            continue
         size = os.path.getsize(path) * 10 // 28   # aproximado: bytes reales de un .hex
         if mode == "w":
+            image = convert_to_bin(Path(path), 0, FLASH_SIZES.get(part, 32 * 1024))
+            mock_state.flash_write(STATE, "avr", image.address, image.data)
             if "-D" not in argv:
                 out("avrdude: erasing chip")
             out(f"avrdude: reading input file \"{path}\"")

@@ -161,7 +161,7 @@ def test_stm32_identify_and_wrong_chip(client, monkeypatch):
 
 def test_config_exposes_capabilities(client):
     cfg = client.get("/api/config").json()
-    assert cfg["chip_capabilities"]["arduino-uno"]["avrdude"] == ["flash", "info", "reset", "verify"]
+    assert cfg["chip_capabilities"]["arduino-uno"]["avrdude"] == ["flash", "info", "read", "reset", "verify"]
     assert "gdb" in cfg["chip_capabilities"]["stm32h503cb"]["swd"]
     assert cfg["unsupported_reasons"]["esptool"]
     assert len(cfg["chips"]) >= 25

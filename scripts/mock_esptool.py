@@ -9,6 +9,12 @@ Si --chip no coincide con el chip conectado, falla igual que esptool real.
 import os
 import sys
 import time
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from app import mock_state  # noqa: E402
+
+STATE = Path(os.environ.get(mock_state.ENV_VAR, "."))
 
 PRETTY = {"esp8266": "ESP8266", "esp32": "ESP32", "esp32s2": "ESP32-S2", "esp32s3": "ESP32-S3",
           "esp32c2": "ESP32-C2", "esp32c3": "ESP32-C3", "esp32c5": "ESP32-C5", "esp32c6": "ESP32-C6",
@@ -45,7 +51,8 @@ def main(argv):
     chip = opt(argv, "--chip", "auto")
     port = opt(argv, "--port", "?")
     baud = opt(argv, "--baud", "115200")
-    commands = [a for a in argv if a in ("write_flash", "verify_flash", "erase_flash", "read_mac", "flash_id")]
+    commands = [a for a in argv if a in ("write_flash", "verify_flash", "erase_flash", "read_mac", "flash_id",
+                                         "read_flash")]
     cmd = commands[0] if commands else None
     out(f"esptool.py v4.12.0 (simulado)")
     out(f"Serial port {port}")
@@ -78,6 +85,7 @@ def main(argv):
             out(f"Compressed {size} bytes to {max(size // 2, 1)}...")
             for pct in (25, 50, 75, 100):
                 out(f"Writing at {int(addr, 0) + size * pct // 100:#010x}... ({pct} %)", 0.15)
+            mock_state.flash_write(STATE, "esp", int(addr, 0), Path(path).read_bytes())
             out(f"Wrote {size} bytes ({max(size // 2, 1)} compressed) at {int(addr, 0):#010x} in 1.2 seconds")
             if "falla" in os.path.basename(path):
                 out("A fatal error occurred: MD5 of file does not match data in flash!")
@@ -91,7 +99,15 @@ def main(argv):
                 out("-- verify FAILED (digest mismatch)")
                 return 2
             out("-- verify OK (digest matched)")
+    elif cmd == "read_flash":
+        i = argv.index("read_flash")
+        addr, size, path = int(argv[i + 1], 0), int(argv[i + 2], 0), argv[i + 3]
+        Path(path).write_bytes(mock_state.flash_read(STATE, "esp", addr, size))
+        for pct in (25, 50, 75, 100):
+            out(f"{size * pct // 100} ({pct} %)", 0.05)
+        out(f"Read {size} bytes at {addr:#010x} in 0.5 seconds (500.0 kbit/s)...")
     elif cmd == "erase_flash":
+        mock_state.flash_erase(STATE, "esp")
         out("Erasing flash (this may take a while)...", 1.5)
         out("Chip erase completed successfully in 3.1s")
     elif cmd == "read_mac":

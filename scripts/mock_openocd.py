@@ -7,6 +7,9 @@ salida parecida a la real, con demoras, para probar la interfaz sin hardware.
 Fallas simuladas:
   * archivo cuyo nombre contiene "falla"  -> error de verificación
   * BENCH_MOCK_FAIL=connect               -> no se puede conectar al target
+  * BENCH_MOCK_RDP=1                      -> la flash no se puede leer (protección de lectura)
+
+Lo que se graba queda en la flash simulada compartida (app/mock_state.py).
 """
 import os
 import socket
@@ -14,6 +17,14 @@ import threading
 import re
 import sys
 import time
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from app import mock_state  # noqa: E402
+from app.convert import convert_to_bin  # noqa: E402
+
+STATE = Path(os.environ.get(mock_state.ENV_VAR, "."))
+FLASH_BASE = 0x08000000
 
 KNOWN_SERIALS = {"066DFF485550755187121832", "002F00283232511639353236"}
 # ID (DBGMCU_IDCODE & 0xFFF) del chip simulado según el .cfg de target.
@@ -155,6 +166,18 @@ def main(argv):
             return 0
 
     for cmd in cmds:
+        if cmd.startswith('echo "UID:'):
+            out("UID: 0x001F0035 0x3133510A 0x37383539")
+            continue
+        if cmd.startswith("dump_image "):
+            m = re.match(r"dump_image \{(.*?)\} (0x[0-9A-Fa-f]+) (\d+)", cmd)
+            path, address, size = m.group(1), int(m.group(2), 16), int(m.group(3))
+            if os.environ.get("BENCH_MOCK_RDP") == "1":
+                out(f"Error: Failed to read memory at 0x{address:08x}", 0.3)
+                return 1
+            Path(path).write_bytes(mock_state.flash_read(STATE, "stm32", address, size))
+            out(f"dumped {size} bytes in 0.412s (mock)", 0.6)
+            continue
         if "read_memory" in cmd:
             # Verificación del ID del chip (DBGMCU_IDCODE).
             connected = int(os.environ.get("BENCH_MOCK_STM32_ID", "0") or "0", 0) or IDS.get(family, 0x000)
@@ -179,6 +202,13 @@ def main(argv):
             out("xPSR: 0x01000000 pc: 0x08000100 msp: 0x20020000")
             # Como el OpenOCD real: marcas de etapa, sin porcentaje de avance.
             out("** Programming Started **", 0.3)
+            if path.lower().endswith(".bin"):
+                at = re.search(r"\} (0x[0-9A-Fa-f]+)", cmd)
+                address = int(at.group(1), 16) if at else FLASH_BASE
+                mock_state.flash_write(STATE, "stm32", address, Path(path).read_bytes())
+            else:
+                image = convert_to_bin(Path(path), FLASH_BASE, FLASH_BASE + 0x1000000)
+                mock_state.flash_write(STATE, "stm32", image.address, image.data)
             out("Info : Device: STM32 (mock)")
             out("Info : flash size probed value 1024k", 1.0)
             out("** Programming Finished **")
@@ -198,8 +228,9 @@ def main(argv):
                 out("Error: checksum mismatch - attempting binary compare", 0.5)
                 return 1
             out(f"verified {os.path.getsize(path)} bytes in 0.412s (mock)", 0.5)
-        elif cmd.startswith("flash erase_sector"):
-            bank = cmd.split()[2]
+        elif cmd.startswith("flash erase_sector") or "mass_erase" in cmd:
+            mock_state.flash_erase(STATE, "stm32")
+            bank = cmd.split()[2] if cmd.startswith("flash erase_sector") else "0"
             out(f"erased sectors 0 through 7 on flash bank {bank} in 3.1s", 1.5)
         elif cmd in ("halt", "reset halt"):
             out(f"[{cpu}] halted due to debug-request, current mode: Thread")

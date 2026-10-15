@@ -17,8 +17,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from app import mock_state  # noqa: E402
 
 STATE = Path(os.environ.get(mock_state.ENV_VAR, "."))
-FLASH_FILE = STATE / "mock_flash.bin"
-FLASH_BASE_FILE = STATE / "mock_flash_base.txt"
 
 
 def out(line, delay=0.03):
@@ -69,8 +67,7 @@ def main(argv):
 
     if "mass-erase" in modifiers:
         out("Performing mass erase, this can take a moment", 1.5)
-        if FLASH_FILE.exists():
-            FLASH_FILE.unlink()
+        mock_state.flash_erase(STATE, "stm32")
         out("Done!")
         return 0
 
@@ -82,8 +79,7 @@ def main(argv):
         for pct in (0, 20, 40, 60, 80, 100):
             bar = "=" * (pct // 4)
             out(f"Download\t[{bar:<25}] {pct:3d}%", 0.25)
-        FLASH_FILE.write_bytes(data)
-        FLASH_BASE_FILE.write_text(str(address))
+        mock_state.flash_write(STATE, "stm32", address, data)
         out("Download done.")
         out("File downloaded successfully")
         if "leave" in modifiers:
@@ -97,13 +93,10 @@ def main(argv):
 
     if upload:
         length = int(modifiers[0]) if modifiers and modifiers[0].isdigit() else 0
-        flash = FLASH_FILE.read_bytes() if FLASH_FILE.exists() else b""
-        base = int(FLASH_BASE_FILE.read_text()) if FLASH_BASE_FILE.exists() else 0x08000000
-        start = address - base
-        chunk = (flash[start:start + length] if start >= 0 else b"")
-        chunk += b"\xff" * (length - len(chunk))
+        chunk = mock_state.flash_read(STATE, "stm32", address, length)
         out(f"Uploading from address = 0x{address:08x}, size = {length}", 0.5)
         Path(upload).write_bytes(chunk)
+        out("Upload\t[============             ]  50%", 0.2)
         out("Upload\t[=========================] 100%")
         out(f"Received a total of {length} bytes")
         out("Upload done.")

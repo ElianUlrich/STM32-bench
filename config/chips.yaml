@@ -10,6 +10,7 @@
 #   flash.base / flash.size_kb / flash.sector_kb
 #   methods.swd     OpenOCD con ST-Link:
 #       target_cfg, interface, adapter_speed_khz, flash_banks, tcl_vars, erase_cmds
+#       uid             dirección del número de serie único de 96 bits (se muestra al leer el micro).
 #       idcode {address, mask, value}: antes de grabar/verificar/borrar se lee el ID del
 #                chip conectado (DBGMCU_IDCODE) y si no coincide NO se toca la flash.
 #   methods.dfu     dfu-util (bootloader USB de ST): vid_pid, alt, address
@@ -45,6 +46,7 @@ chips:
         adapter_speed_khz: 1000
         flash_banks: [0]
         idcode: { address: 0x44024000, value: 0x474 }
+        uid: 0x08FFF800
       dfu:
         vid_pid: "0483:df11"
         alt: 0
@@ -61,6 +63,7 @@ chips:
         adapter_speed_khz: 4000
         flash_banks: [0]
         idcode: { address: 0x5C001000, value: 0x483 }
+        uid: 0x1FF1E800
       dfu:
         vid_pid: "0483:df11"
         alt: 0
@@ -78,6 +81,7 @@ chips:
         flash_banks: [0]
         # Muchas "Blue Pill" traen clones CKS32/CS32 con otro ID: si falla, quitá esta línea.
         idcode: { address: 0xE0042000, value: 0x410 }
+        uid: 0x1FFFF7E8
       # El bootloader del F103 no tiene USB DFU (solo USART).
 
   - id: stm32f411ce
@@ -92,6 +96,7 @@ chips:
         adapter_speed_khz: 2000
         flash_banks: [0]
         idcode: { address: 0xE0042000, value: 0x431 }
+        uid: 0x1FFF7A10
       dfu:
         vid_pid: "0483:df11"
         alt: 0
@@ -108,6 +113,7 @@ chips:
         adapter_speed_khz: 4000
         flash_banks: [0]
         idcode: { address: 0xE0042000, value: 0x415 }
+        uid: 0x1FFF7590
       dfu:
         vid_pid: "0483:df11"
         alt: 0
@@ -124,6 +130,7 @@ chips:
         adapter_speed_khz: 4000
         flash_banks: [0]
         idcode: { address: 0x40015800, value: 0x460 }
+        uid: 0x1FFF7590
 
   - id: stm32g474re
     name: STM32G474RE (Nucleo-G474RE)
@@ -137,6 +144,7 @@ chips:
         adapter_speed_khz: 4000
         flash_banks: [0]
         idcode: { address: 0xE0042000, value: 0x469 }
+        uid: 0x1FFF7590
       dfu:
         vid_pid: "0483:df11"
         alt: 0

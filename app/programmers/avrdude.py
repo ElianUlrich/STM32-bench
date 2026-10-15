@@ -81,6 +81,19 @@ def erase_args(command: Sequence[str], params: AvrdudeParams, port: str) -> List
     return _base(command, params, port) + ["-e"]
 
 
+def read_args(command: Sequence[str], params: AvrdudeParams, port: str, output: Path) -> List[str]:
+    """Lee la flash a un binario. Con programador ISP también los fusibles (el bootloader
+    serie no puede leerlos): salen por la salida estándar en hexadecimal, en este orden."""
+    args = _base(command, params, port) + ["-U", f"flash:r:{output}:r"]
+    if params.is_isp:
+        for fuse in FUSES:
+            args += ["-U", f"{fuse}:r:-:h"]
+    return args
+
+
+FUSES = ("lfuse", "hfuse", "efuse")
+
+
 def info_args(command: Sequence[str], params: AvrdudeParams, port: str) -> List[str]:
     """Sin -U: avrdude se conecta, lee la firma del chip y la compara con -p."""
     return _base(command, params, port)

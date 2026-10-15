@@ -69,11 +69,14 @@ class Job:
     warnings: List[str] = field(default_factory=list)
     # Mientras corre: etapa y porcentaje (progress.Tracker.snapshot()).
     progress: Optional[Dict[str, Any]] = None
+    # Datos del resultado para la interfaz (p. ej. {"readback": id} al leer el micro).
+    result: Optional[Dict[str, Any]] = None
 
     def to_public(self) -> Dict[str, Any]:
         data = asdict(self)
-        if data["progress"] is None:
-            del data["progress"]
+        for key in ("progress", "result"):
+            if data[key] is None:
+                del data[key]
         if self.finished:
             data["duration_s"] = round(self.finished - self.started, 2)
         return data

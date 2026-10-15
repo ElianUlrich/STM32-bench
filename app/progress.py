@@ -8,7 +8,7 @@ Cada herramienta avisa a su manera en qué anda:
   * avrdude dibuja "Writing | ### | 100%" al terminar cada fase.
 
 `tracker_for(herramienta, acción)` devuelve un seguidor con las etapas de esa
-operación (connect, erase, write, verify, reset). Se le pasa cada línea con
+operación (connect, erase, write, verify, reset, read). Se le pasa cada línea con
 `feed()`, que dice si cambió algo que valga la pena mostrar (otra etapa, otro
 porcentaje entero u otro detalle) y si la línea es sólo una actualización de
 avance (la interfaz las pisa en lugar de apilarlas). `snapshot()` es lo que se
@@ -105,6 +105,14 @@ class OpenOcdVerify(Tracker):
     rules = (
         _rule(_OCD_READY, stage="verify", when=("connect",)),
         _rule(r"^verified \d+ bytes", stage="verify", pct=100),
+    )
+
+
+class OpenOcdRead(Tracker):
+    stages = ("connect", "read")
+    rules = (
+        _rule(_OCD_READY, stage="read", when=("connect",)),
+        _rule(r"^dumped \d+ bytes", stage="read", pct=100),
     )
 
 
@@ -206,6 +214,15 @@ class EsptoolVerify(_Files):
         return False
 
 
+class EsptoolRead(Tracker):
+    """read_flash: sin terminal, esptool imprime cada avance como "16384 (25 %)"."""
+    stages = ("connect", "read")
+    rules = (
+        _rule(r"^\d+ \(\s*(?P<pct>\d+)\s*%\)", stage="read", read_pct=True, progress=True),
+        _rule(r"^Read \d+ bytes at", stage="read", pct=100),
+    )
+
+
 class EsptoolErase(Tracker):
     stages = ("connect", "erase")
     rules = (
@@ -233,6 +250,14 @@ class DfuUpload(Tracker):
     rules = (
         _rule(r"^Upload\s*" + _DFU_BAR, stage="verify", read_pct=True, progress=True),
         _rule(r"^Upload done", stage="verify", pct=100),
+    )
+
+
+class DfuRead(Tracker):
+    stages = ("connect", "read")
+    rules = (
+        _rule(r"^Upload\s*" + _DFU_BAR, stage="read", read_pct=True, progress=True),
+        _rule(r"^Upload done", stage="read", pct=100),
     )
 
 
@@ -272,6 +297,15 @@ class AvrVerify(Tracker):
     )
 
 
+class AvrRead(Tracker):
+    stages = ("connect", "read")
+    rules = (
+        _rule(r"reading flash memory", stage="read"),
+        _rule(r"^Reading\s*" + _AVR_BAR, read_pct=True, when=("read",), progress=True),
+        _rule(r"^(Reading|Writing)\s*\|", progress=True),
+    )
+
+
 class AvrErase(Tracker):
     stages = ("connect", "erase")
     rules = (
@@ -284,9 +318,12 @@ class AvrErase(Tracker):
 # ---------------------------------------------------------------------- fábrica
 _SIMPLE = {
     ("openocd", "flash"): OpenOcdFlash, ("openocd", "verify"): OpenOcdVerify, ("openocd", "erase"): OpenOcdErase,
-    ("esptool", "erase"): EsptoolErase,
+    ("openocd", "read"): OpenOcdRead,
+    ("esptool", "erase"): EsptoolErase, ("esptool", "read"): EsptoolRead,
     ("dfu-util", "flash"): DfuDownload, ("dfu-util", "verify"): DfuUpload, ("dfu-util", "erase"): DfuErase,
+    ("dfu-util", "read"): DfuRead,
     ("avrdude", "flash"): AvrFlash, ("avrdude", "verify"): AvrVerify, ("avrdude", "erase"): AvrErase,
+    ("avrdude", "read"): AvrRead,
 }
 _BY_SIZE = {("esptool", "flash"): EsptoolWrite, ("esptool", "verify"): EsptoolVerify}
 

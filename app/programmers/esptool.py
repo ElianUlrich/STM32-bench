@@ -151,6 +151,14 @@ def verify_files_args(command: Sequence[str], params: EsptoolParams, port: str,
     return _base(command, params, port) + ["verify_flash"] + _pairs(pairs)
 
 
+def read_args(command: Sequence[str], params: EsptoolParams, port: str, address: int, size: int,
+              output: Path) -> List[str]:
+    """Lee `size` bytes de la flash desde `address` a un archivo."""
+    if not 0 <= address < 0x10000000 or not 0 < size <= 0x10000000:
+        raise EspImageError("Rango de lectura inválido")
+    return _base(command, params, port) + ["read_flash", f"0x{address:X}", f"0x{size:X}", str(output)]
+
+
 def erase_args(command: Sequence[str], params: EsptoolParams, port: str) -> List[str]:
     return _base(command, params, port) + ["erase_flash"]
 

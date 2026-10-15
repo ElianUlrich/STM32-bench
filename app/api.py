@@ -6,7 +6,7 @@ import json
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 
 from . import esp_project
@@ -253,6 +253,7 @@ class JobBody(BaseModel):
     leave: bool = True
     stop_gdb: bool = False
     esp_scope: Optional[str] = None     # proyecto ESP-IDF: "file" (sólo el elegido) o "all"
+    read_scope: Optional[str] = None    # leer un ESP: "identify" (rápido) o "full" (copia completa)
 
 
 @router.post("/jobs", status_code=202)
@@ -261,6 +262,31 @@ async def create_job(body: JobBody, request: Request, _: str = Depends(require_u
     data = body.model_dump() if hasattr(body, "model_dump") else body.dict()
     job = await bench.start_job(JobRequest(**data))
     return {"job": job.to_public()}
+
+
+# ------------------------------------------------------------------- leer el micro
+
+@router.get("/readback")
+async def readback_latest(request: Request, _: str = Depends(require_user)) -> Dict[str, Any]:
+    """La última lectura del micro (informe completo), o null."""
+    return {"report": get_bench(request).reader.store.latest()}
+
+
+@router.get("/readback/{rid}/files/{name}")
+async def readback_file(rid: str, name: str, request: Request, _: str = Depends(require_user)) -> FileResponse:
+    bench = get_bench(request)
+    path = bench.reader.store.file(rid, name)
+    report = bench.reader.store.get(rid)
+    return FileResponse(path, media_type="application/octet-stream", filename=f"{report['chip']}-{name}")
+
+
+@router.post("/readback/{rid}/save")
+async def readback_save(rid: str, request: Request, _: str = Depends(require_user)) -> Dict[str, Any]:
+    """Guarda la lectura como copia de respaldo en Archivos (proyecto "respaldos")."""
+    bench = get_bench(request)
+    result = await asyncio.get_running_loop().run_in_executor(None, bench.reader.save, rid)
+    bench.bus.publish({"type": "files_changed"})
+    return result
 
 
 @router.post("/jobs/cancel")

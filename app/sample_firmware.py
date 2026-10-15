@@ -9,8 +9,9 @@ import hashlib
 import json
 import struct
 from pathlib import Path
-from typing import Dict, Iterable, List, Sequence, Tuple
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
+from .convert import to_ihex  # noqa: F401  (los tests lo usan desde acá)
 from .settings import UPLOADS_DIRNAME
 
 FLASH_BASE = 0x08000000
@@ -44,27 +45,6 @@ def vector_table(size: int = 1024) -> bytes:
     return head + body
 
 
-def to_ihex(blocks: Iterable[Tuple[int, bytes]]) -> str:
-    """Intel HEX con registros de dirección extendida (tipo 04)."""
-    lines: List[str] = []
-
-    def record(rtype: int, addr: int, data: bytes) -> str:
-        raw = bytes([len(data), (addr >> 8) & 0xFF, addr & 0xFF, rtype]) + data
-        checksum = (-sum(raw)) & 0xFF
-        return ":" + (raw + bytes([checksum])).hex().upper()
-
-    upper = None
-    for base, data in blocks:
-        for i in range(0, len(data), 16):
-            addr = base + i
-            if (addr >> 16) != upper:
-                upper = addr >> 16
-                lines.append(record(0x04, 0, struct.pack(">H", upper)))
-            lines.append(record(0x00, addr & 0xFFFF, data[i:i + 16]))
-    lines.append(record(0x01, 0, b""))
-    return "\n".join(lines) + "\n"
-
-
 def demo_images() -> dict:
     text = vector_table(2048)
     data = bytes(range(64))
@@ -82,12 +62,35 @@ def demo_images() -> dict:
     }
 
 
-def esp_image(chip_id: int, size: int = 4096, entry: int = 0x40080000) -> bytes:
-    """Imagen de ESP mínima: cabecera (0xE9) + cabecera extendida con el ID de chip."""
-    header = bytes([0xE9, 1, 2, 0x20]) + struct.pack("<I", entry)
+def esp_app_desc(project: str, version: str, idf: str = "v5.5.5", date: str = "Oct  7 2026",
+                 time_: str = "18:41:00") -> bytes:
+    """esp_app_desc_t de ESP-IDF (256 bytes): lo que dice qué programa es y cuándo se compiló."""
+    def text(value: str, n: int) -> bytes:
+        return value.encode()[:n - 1].ljust(n, b"\0")
+    return (struct.pack("<II", 0xABCD5432, 0) + bytes(8) + text(version, 32) + text(project, 32)
+            + text(time_, 16) + text(date, 16) + text(idf, 32) + hashlib.sha256(project.encode()).digest()
+            + bytes(256 - 176))
+
+
+def esp_image(chip_id: int, size: int = 4096, entry: int = 0x40080000, desc: Optional[bytes] = None) -> bytes:
+    """Imagen de ESP: cabecera (0xE9) + cabecera extendida con el ID de chip + segmentos.
+
+    Con `desc`, el primer segmento empieza con la descripción de la app (como ESP-IDF),
+    y la imagen termina como las reales: relleno a 16 bytes con la suma de control y el
+    SHA-256 de la imagen."""
     ext = bytes([0xEE, 0, 0, 0]) + struct.pack("<H", chip_id) + bytes(10)   # 16 bytes
-    body = bytes((i * 13 + 7) & 0xFF for i in range(max(size - len(header) - len(ext), 16)))
-    return header + ext + body
+    if desc is None:
+        header = bytes([0xE9, 1, 2, 0x20]) + struct.pack("<I", entry)
+        body = bytes((i * 13 + 7) & 0xFF for i in range(max(size - len(header) - len(ext), 16)))
+        return header + ext + body
+    ext = ext[:15] + b"\x01"                                     # hash_appended
+    seg_len = max(size - 24 - 8 - 48, len(desc) + 16)
+    seg_len -= seg_len % 4
+    data = desc + bytes((i * 13 + 7) & 0xFF for i in range(seg_len - len(desc)))
+    image = bytes([0xE9, 1, 2, 0x20]) + struct.pack("<I", entry) + ext + struct.pack("<II", 0x3C000020, seg_len) + data
+    pad = 15 - (len(image) % 16)
+    image += bytes(pad) + bytes([0xEF])                                # relleno + suma de control
+    return image + hashlib.sha256(image).digest()
 
 
 def esp_merged(chip_id: int, bootloader_offset: int, app_size: int = 4096) -> bytes:
@@ -122,7 +125,7 @@ def esp_idf_build(name: str = "demo-idf", chip: str = "esp32p4", chip_id: int = 
     files = {
         "bootloader/bootloader.bin": esp_image(chip_id, 0x5000, entry=0x4FF00000),
         "partition_table/partition-table.bin": esp_partition_table(parts),
-        f"{name}.bin": esp_image(chip_id, app_size),
+        f"{name}.bin": esp_image(chip_id, app_size, desc=esp_app_desc(name, "1.0.0")),
     }
     flash_files = {hex(bootloader): "bootloader/bootloader.bin", hex(app): f"{name}.bin",
                    hex(table): "partition_table/partition-table.bin"}

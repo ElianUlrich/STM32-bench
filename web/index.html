@@ -217,6 +217,8 @@
             <svg class="ic" aria-hidden="true"><use href="#i-folder"/></svg>Archivos</button>
           <button type="button" role="tab" id="tabbtn-debug" aria-controls="tab-debug" data-tab="debug">
             <svg class="ic" aria-hidden="true"><use href="#i-bug"/></svg>Depurar</button>
+          <button type="button" role="tab" id="tabbtn-micro" aria-controls="tab-micro" data-tab="micro">
+            <svg class="ic" aria-hidden="true"><use href="#i-chip"/></svg>Micro</button>
           <button type="button" role="tab" id="tabbtn-serial" aria-controls="tab-serial" data-tab="serial">
             <svg class="ic" aria-hidden="true"><use href="#i-terminal"/></svg>Monitor serie</button>
           <button type="button" role="tab" id="tabbtn-history" aria-controls="tab-history" data-tab="history">
@@ -365,6 +367,23 @@
               </div>
             </div>
           </details>
+        </div>
+
+        <div class="tab" id="tab-micro" role="tabpanel" aria-labelledby="tabbtn-micro" hidden>
+          <div class="micro-bar">
+            <div class="micro-intro">
+              <strong>¿Qué tiene grabado la placa?</strong>
+              <small>Lee la flash sin modificarla y la compara con los archivos de esa placa.</small>
+            </div>
+            <label class="inline compact" id="read-scope-field" hidden>Qué leer
+              <select id="sel-read-scope">
+                <option value="identify">Identificar (rápido)</option>
+                <option value="full">Copia completa</option>
+              </select></label>
+            <button class="btn" data-action="read" data-label="Leer el micro" type="button">
+              <svg class="ic" aria-hidden="true"><use href="#i-scan"/></svg>Leer el micro</button>
+          </div>
+          <div id="micro-report" class="micro-report"></div>
         </div>
 
         <div class="tab" id="tab-serial" role="tabpanel" aria-labelledby="tabbtn-serial" hidden>

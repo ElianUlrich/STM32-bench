@@ -53,7 +53,7 @@ def test_config(client):
     assert data["mock"] is True
     ids = [c["id"] for c in data["chips"]]
     assert "stm32h503cb" in ids and "stm32h723vg" in ids
-    assert data["capabilities"]["dfu"] == ["erase", "flash", "verify"]
+    assert data["capabilities"]["dfu"] == ["erase", "flash", "read", "verify"]
 
 
 def test_upload_scan_delete(client):

@@ -140,6 +140,18 @@ def erase_args(setup: OpenOcdSetup, swd: SwdParams) -> List[str]:
     return args + ["-c", "shutdown"]
 
 
+def read_args(setup: OpenOcdSetup, swd: SwdParams, output: Path, address: int, size: int) -> List[str]:
+    """Lee la flash a un archivo sin detener el programa (el acceso de depuración de los
+    Cortex-M lee la memoria con el núcleo corriendo). Si chips.yaml lo dice, informa
+    también el número de serie único del chip."""
+    if not 0 <= address <= 0xFFFFFFFF or not 0 < size <= 0x10000000:
+        raise CommandError("Rango de lectura inválido")
+    args = _init_checked(setup, swd)
+    if swd.uid is not None:
+        args += ["-c", f"echo \"UID: [read_memory {_hex(swd.uid)} 32 3]\""]
+    return args + ["-c", f"dump_image {_tcl_path(output)} {_hex(address)} {int(size)}", "-c", "shutdown"]
+
+
 def reset_args(setup: OpenOcdSetup, swd: SwdParams) -> List[str]:
     return base_args(setup, swd) + ["-c", "init", "-c", "reset run", "-c", "shutdown"]
 

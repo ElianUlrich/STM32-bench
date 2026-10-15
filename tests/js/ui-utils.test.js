@@ -87,3 +87,19 @@ test("chipLabels: nombre corto sólo si no se repite", () => {
     p4: "ESP32-P4",
   });
 });
+
+test("lectura: etapa y resumen del informe", () => {
+  assert.equal(UI.stageLabel("read"), "Leer");
+  assert.equal(UI.stageLabel("read", true), "Leyendo");
+  const s = UI.readSummary({ summary: { state: "match", file: "h503/build/a.elf", text: "Tiene grabado a.elf" } });
+  assert.deepEqual(s, { tone: "ok", title: "Tiene grabado a.elf", icon: "check" });
+  assert.equal(UI.readSummary({ summary: { state: "unknown", text: "Firmware desconocido" } }).tone, "warn");
+  assert.equal(UI.readSummary({ summary: { state: "empty", text: "La flash está vacía" } }).tone, "muted");
+  assert.equal(UI.readSummary({ summary: { state: "partial", text: "x" } }).tone, "ok");
+  assert.equal(UI.readSummary(null), null);
+});
+
+test("fmtHexBytes: tamaños legibles", () => {
+  assert.equal(UI.usedText(2412, 131072), "2.4 KB de 128 KB (1.8 %)");
+  assert.equal(UI.usedText(0, 131072), "0 B de 128 KB (0 %)");
+});

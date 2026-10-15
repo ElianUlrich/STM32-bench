@@ -1,15 +1,20 @@
-"""Estado compartido del modo mock (dispositivo DFU simulado).
+"""Estado compartido del modo mock: dispositivo DFU simulado y flash simulada.
 
-Lo usan el BootControl simulado (proceso de la app) y scripts/mock_dfu_util.py
-(proceso aparte), por eso vive en un archivo JSON del directorio de estado.
+Lo usan el BootControl simulado (proceso de la app) y los simuladores de
+scripts/ (procesos aparte), por eso vive en archivos del directorio de estado.
+
+La flash simulada de cada "dispositivo" (stm32, esp, avr) guarda lo que se
+grabó como segmentos (dirección + archivo); al leer, lo no grabado es 0xFF.
+Así lo que se graba por SWD se puede leer por DFU, y al revés.
 """
 from __future__ import annotations
 
 import json
 import os
+import shutil
 import time
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 STATE_FILE = "mock_dfu.json"
 ENV_VAR = "BENCH_MOCK_STATE_DIR"
@@ -45,3 +50,46 @@ def dfu_present(state_dir: Path) -> Optional[str]:
     if data.get("present_at") is not None and time.time() >= float(data["present_at"]):
         return str(data.get("serial", MOCK_DFU_SERIAL))
     return None
+
+
+# --------------------------------------------------------------- flash simulada
+
+def _flash_dir(state_dir: Path, device: str) -> Path:
+    return Path(state_dir) / f"mock_flash_{device}"
+
+
+def _segments(folder: Path) -> List[list]:
+    try:
+        return json.loads((folder / "index.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+
+
+def flash_write(state_dir: Path, device: str, address: int, data: bytes) -> None:
+    folder = _flash_dir(state_dir, device)
+    folder.mkdir(parents=True, exist_ok=True)
+    items = _segments(folder)
+    name = f"{len(items):04d}.bin"
+    (folder / name).write_bytes(data)
+    items.append([int(address), name])
+    tmp = folder / "index.tmp"
+    tmp.write_text(json.dumps(items), encoding="utf-8")
+    os.replace(tmp, folder / "index.json")
+
+
+def flash_erase(state_dir: Path, device: str) -> None:
+    shutil.rmtree(_flash_dir(state_dir, device), ignore_errors=True)
+
+
+def flash_read(state_dir: Path, device: str, address: int, size: int) -> bytes:
+    folder = _flash_dir(state_dir, device)
+    out = bytearray(b"\xff" * size)
+    for addr, name in _segments(folder):
+        try:
+            data = (folder / name).read_bytes()
+        except OSError:
+            continue
+        start, end = max(addr, address), min(addr + len(data), address + size)
+        if start < end:
+            out[start - address:end - address] = data[start - addr:end - addr]
+    return bytes(out)

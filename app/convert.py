@@ -17,9 +17,10 @@ Detalles importantes:
 """
 from __future__ import annotations
 
+import struct
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Iterable, List, Optional, Tuple
 
 DEFAULT_GAP_WARN_BYTES = 4096
 FILL_BYTE = 0xFF
@@ -134,6 +135,27 @@ def build_bin(segments: List[Segment], flash_base: int, flash_end: int,
         warnings.append(f"La imagen empieza en 0x{start:08X} (no en la base de flash 0x{flash_base:08X}).")
     return BinImage(address=start, data=bytes(image),
                     segments=[(s.address, s.end) for s in merged], warnings=warnings)
+
+
+def to_ihex(blocks: Iterable[Tuple[int, bytes]]) -> str:
+    """Intel HEX con registros de dirección extendida (tipo 04). blocks = [(dirección, datos)]."""
+    lines: List[str] = []
+
+    def record(rtype: int, addr: int, data: bytes) -> str:
+        raw = bytes([len(data), (addr >> 8) & 0xFF, addr & 0xFF, rtype]) + data
+        checksum = (-sum(raw)) & 0xFF
+        return ":" + (raw + bytes([checksum])).hex().upper()
+
+    upper = None
+    for base, data in blocks:
+        for i in range(0, len(data), 16):
+            addr = base + i
+            if (addr >> 16) != upper:
+                upper = addr >> 16
+                lines.append(record(0x04, 0, struct.pack(">H", upper)))
+            lines.append(record(0x00, addr & 0xFFFF, data[i:i + 16]))
+    lines.append(record(0x01, 0, b""))
+    return "\n".join(lines) + "\n"
 
 
 def convert_to_bin(path: Path, flash_base: int, flash_end: int,
