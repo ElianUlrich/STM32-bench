@@ -4,6 +4,8 @@ import dataclasses
 import socket
 import time
 
+import pytest
+
 SERIAL = "066DFF485550755187121832"
 RTT_ELF = "h503-contador/build/05_contador_rtt.elf"
 
@@ -85,3 +87,26 @@ def test_other_chip_is_refused_while_debugging(client):
     assert r.status_code == 409 and "depuración" in r.json()["detail"]
     client.post("/api/debug/stop")
     client.post("/api/gdb/stop")
+
+
+def test_network_ports_are_relayed_and_openocd_listens_only_locally(client):
+    """OpenOCD escucha en 127.0.0.1 (con el puerto TCL); a la red salen GDB y RTT reenviados."""
+    cfg = use_free_ports(client)
+    st = client.post("/api/gdb/start", json={"chip": "stm32h503cb", "probe_serial": SERIAL, "file": RTT_ELF}).json()
+    try:
+        local = st["local"]
+        assert len({cfg.gdb_port, cfg.rtt_port, local["gdb"], local["rtt"], local["tcl"]}) == 5
+        # Un cliente externo recibe el canal RTT por el puerto público.
+        with socket.create_connection(("127.0.0.1", cfg.rtt_port), timeout=5) as rtt:
+            data = b""
+            while b"05_contador_rtt" not in data:
+                data += rtt.recv(256)
+        # Y un GDB externo por el puerto público llega a OpenOCD.
+        with socket.create_connection(("127.0.0.1", cfg.gdb_port)):
+            wait_gdb(client, lambda s: s["client_connected"])
+        wait_gdb(client, lambda s: not s["client_connected"])
+    finally:
+        client.post("/api/gdb/stop")
+    # Al detenerlo se cierran también los puertos públicos.
+    with pytest.raises(OSError):
+        socket.create_connection(("127.0.0.1", cfg.gdb_port), timeout=1).close()

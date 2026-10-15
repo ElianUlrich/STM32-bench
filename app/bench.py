@@ -14,6 +14,8 @@ cualquier comando:
 from __future__ import annotations
 
 import asyncio
+import dataclasses
+import ipaddress
 import os
 import sys
 import tempfile
@@ -39,7 +41,9 @@ from .programmers import avrdude as avr_cmd, base, dfu as dfu_cmd, esptool as es
 from .programmers.gdbserver import GdbServer, GdbServerBusy, GdbServerError, ServerTarget
 from .programmers.runner import BusyError, Job, JobContext, JobFailed, JobRunner, failure_reason, new_job
 from .progress import tracker_for
+from .livevars import MAX_LIVE, MAX_RATE_HZ, LiveSampler, Variable, list_variables
 from .reading import ChipReader
+from .relay import TcpRelay, free_local_port
 from .serial_monitor import SerialError, SerialManager
 from .settings import BenchConfig, ConfigError, InterfaceConfig, Settings, load_bench_config
 
@@ -130,6 +134,7 @@ class Bench:
         self.runner = JobRunner(self.bus, self.history, self.env_extra)
         self.gdb = GdbServer(self.bus, self.env_extra)
         self.debug = DebugSession(self.bus, self.env_extra)
+        self.live = LiveSampler(self.bus)
         self.port_power = usb.PortPower(mock=settings.mock)
         # Mientras se depura, si RTT todavía no encontró el bloque (el programa recién arranca), se reintenta.
         self.debug.rtt_retry = lambda: bool(self.gdb.active and self.gdb.info.get("rtt")
@@ -699,25 +704,83 @@ class Bench:
         serial = self.resolve_probe_serial(probe_serial)
         bind_ip, show_ip = self.gdb_bind_ip()
         port = self.cfg.gdb_port
+        # OpenOCD escucha sólo en 127.0.0.1 (con su puerto TCL, para muestrear variables);
+        # a la red salen el puerto GDB y el de RTT por reenvío.
+        local = {"gdb": free_local_port(), "tcl": free_local_port()}
+        local_rtt = None
+        if rtt is not None:
+            local["rtt"] = free_local_port()
+            local_rtt = dataclasses.replace(rtt, port=local["rtt"])
         try:
-            argv = ocd_cmd.gdb_server_args(self.openocd_setup(iface, serial), chip.swd, port, bind_ip, rtt=rtt)
+            argv = ocd_cmd.gdb_server_args(self.openocd_setup(iface, serial), chip.swd, local["gdb"], "127.0.0.1",
+                                           rtt=local_rtt, tcl_port=local["tcl"])
+            ipaddress.ip_address(bind_ip)
         except (ocd_cmd.CommandError, ValueError) as exc:
             raise RequestError(str(exc))
+        relays = [TcpRelay(bind_ip, port, local["gdb"])]
         info = {"chip": chip.id, "chip_name": chip.name, "interface": iface.id, "probe_serial": serial,
-                "port": port, "bind_ip": bind_ip,
+                "port": port, "bind_ip": bind_ip, "local": local,
                 "connect": f"{show_ip}:{port}" if show_ip else f"<IP de la placa>:{port}"}
         if rtt is not None:
+            relays.append(TcpRelay(bind_ip, rtt.port, local["rtt"]))
             info["rtt"] = {"address": f"0x{rtt.address:08X}", "port": rtt.port,
                            "connect": f"{show_ip}:{rtt.port}" if show_ip else None}
         try:
-            return await self.gdb.start(argv, info)
+            return await self.gdb.start(argv, info, relays=relays)
         except GdbServerError as exc:
             raise RequestError(str(exc))
 
     async def stop_gdb(self) -> Dict[str, Any]:
-        """Detiene el servidor GDB (y antes, la depuración de la web que lo usa)."""
+        """Detiene el servidor GDB (y antes, la depuración y los gráficos de la web que lo usan)."""
+        await self.live.stop()
         await self.debug.stop()
         return await self.gdb.stop()
+
+    # ------------------------------------------------------ variables en vivo
+    def live_variables(self, rel_path: str) -> Tuple[Path, List[Variable]]:
+        """Las variables que se pueden graficar de un .elf (bloqueante)."""
+        try:
+            elf = resolve_firmware(self.settings.projects_dir, rel_path)
+        except FileValidationError as exc:
+            raise RequestError(str(exc))
+        if elf.suffix.lower() != ".elf":
+            raise RequestError("Para graficar variables hace falta el .elf (trae sus nombres, tipos y direcciones)")
+        variables = list_variables(elf)
+        if not variables:
+            raise RequestError(f"{elf.name} no tiene variables globales con información de depuración "
+                               "(compilá con -g)")
+        return elf, variables
+
+    async def start_live(self, chip_id: str, interface: Optional[str], probe_serial: Optional[str],
+                         rel_path: str, names: List[str], rate_hz: int) -> Dict[str, Any]:
+        """Empieza a muestrear variables con el micro corriendo, por el OpenOCD compartido."""
+        chip = self.chip(chip_id)
+        if chip.swd is None:
+            raise RequestError("Los gráficos de variables son para STM32 por SWD (ST-Link)")
+        if self.runner.busy:
+            raise BusyError("Hay una operación en curso; esperá a que termine")
+        if not names:
+            raise RequestError("Elegí al menos una variable")
+        if len(names) > MAX_LIVE:
+            raise RequestError(f"Se pueden graficar hasta {MAX_LIVE} variables a la vez")
+        if not 1 <= int(rate_hz) <= MAX_RATE_HZ:
+            raise RequestError(f"Muestras por segundo: de 1 a {MAX_RATE_HZ}")
+        loop = asyncio.get_running_loop()
+        elf, variables = await loop.run_in_executor(None, self.live_variables, rel_path)
+        self.check_binding(rel_path, elf, chip)
+        by_name = {v.name: v for v in variables}
+        missing = [n for n in names if n not in by_name]
+        if missing:
+            raise RequestError(f"{elf.name} no tiene la variable '{missing[0]}'")
+        await self.live.stop()
+        # Si hay que arrancar OpenOCD, con RTT si el programa lo usa (así abrir RTT después no lo reinicia).
+        rtt = None if self.gdb.active else await loop.run_in_executor(None, self.rtt_config, rel_path)
+        await self.ensure_server(chip, interface, probe_serial, rtt)
+        endpoint = self.gdb.tcl_endpoint()
+        if endpoint is None:
+            raise RequestError("OpenOCD no tiene el puerto para leer variables: detené el servidor GDB y probá de nuevo")
+        return await self.live.start(endpoint, [by_name[n] for n in names], int(rate_hz),
+                                     {"chip": chip.id, "chip_name": chip.name, "elf": rel_path})
 
     # ------------------------------------------------------------- depurador web
     def debug_elf(self, rel_path: str) -> Tuple[Path, DebugInfo]:

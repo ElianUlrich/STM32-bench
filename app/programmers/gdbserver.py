@@ -9,6 +9,7 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
 from ..events import EventBus
 from ..procs import StreamingProcess
+from ..relay import TcpRelay
 
 
 class GdbServerError(RuntimeError):
@@ -34,6 +35,7 @@ class GdbServer:
         self.env_extra = env_extra or {}
         self._proc: Optional[StreamingProcess] = None
         self._watch: Optional[asyncio.Task] = None
+        self._relays: List[TcpRelay] = []
         self._stopping = False
         self.state = "stopped"          # stopped | starting | listening | error
         self.info: Dict[str, Any] = {}
@@ -101,12 +103,15 @@ class GdbServer:
         return self.status()
 
     def local_endpoint(self) -> Tuple[str, int, Optional[int]]:
-        """(IP, puerto GDB, puerto RTT) para conectarse desde la propia placa."""
-        host = self.info.get("bind_ip") or "127.0.0.1"
-        if host == "0.0.0.0":
-            host = "127.0.0.1"
+        """(IP, puerto GDB, puerto RTT) de OpenOCD, para conectarse desde la propia placa."""
+        local = self.info.get("local") or {}
         rtt = self.info.get("rtt") or {}
-        return host, int(self.info.get("port", 3333)), rtt.get("port")
+        return "127.0.0.1", int(local.get("gdb") or self.info.get("port", 3333)), local.get("rtt") or rtt.get("port")
+
+    def tcl_endpoint(self) -> Optional[Tuple[str, int]]:
+        """Puerto TCL de OpenOCD (sólo en 127.0.0.1), o None."""
+        tcl = (self.info.get("local") or {}).get("tcl")
+        return ("127.0.0.1", int(tcl)) if tcl and self.active else None
 
     def _on_line(self, line: str) -> None:
         self.bus.publish({"type": "log", "source": "gdb", "level": "out", "line": line})
@@ -132,9 +137,21 @@ class GdbServer:
         if changed:
             self.bus.publish({"type": "gdb", "status": self.status()})
 
-    async def start(self, argv: List[str], info: Dict[str, Any], wait_s: float = 15.0) -> Dict[str, Any]:
+    async def start(self, argv: List[str], info: Dict[str, Any], wait_s: float = 15.0,
+                    relays: Optional[List[TcpRelay]] = None) -> Dict[str, Any]:
+        """Arranca OpenOCD y los reenvíos de sus puertos a la red (`relays`)."""
         if self.active:
             raise GdbServerError("El servidor GDB ya está en marcha")
+        for relay in relays or []:
+            try:
+                await relay.start()
+                self._relays.append(relay)
+            except OSError as exc:
+                await self._close_relays()
+                self.state = "error"
+                self.last_error = f"No se pudo abrir el puerto {relay.port} en {relay.host}: {exc.strerror or exc}"
+                self._publish()
+                raise GdbServerError(self.last_error)
         self._stopping = False
         self.state = "starting"
         self.client_connected = False
@@ -146,6 +163,7 @@ class GdbServer:
         try:
             proc.start()
         except FileNotFoundError:
+            await self._close_relays()
             self.state = "error"
             self.last_error = f"No se encontró '{argv[0]}'"
             self._publish()
@@ -163,6 +181,7 @@ class GdbServer:
             await asyncio.sleep(0.1)
         if proc.poll() is not None:
             await asyncio.sleep(0.2)   # deja que _watch_process registre el error
+            await self._close_relays()
             raise GdbServerError(self.last_error or "OpenOCD terminó al iniciar")
         return self.status()   # sigue arrancando; el estado llegará por SSE
 
@@ -175,6 +194,7 @@ class GdbServer:
         code = proc.poll()
         self._proc = None
         self.client_connected = False
+        await self._close_relays()
         if self._stopping:
             self.state = "stopped"
         else:
@@ -198,10 +218,16 @@ class GdbServer:
             except asyncio.TimeoutError:
                 pass
         self._proc = None
+        await self._close_relays()
         self.state = "stopped"
         self.client_connected = False
         self._publish()
         return self.status()
+
+    async def _close_relays(self) -> None:
+        relays, self._relays = self._relays, []
+        for relay in relays:
+            await relay.stop()
 
     def stop_sync(self) -> None:
         """Parada sincrónica (al apagar la app)."""

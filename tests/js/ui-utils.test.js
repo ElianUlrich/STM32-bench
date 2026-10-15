@@ -103,3 +103,41 @@ test("fmtHexBytes: tamaños legibles", () => {
   assert.equal(UI.usedText(2412, 131072), "2.4 KB de 128 KB (1.8 %)");
   assert.equal(UI.usedText(0, 131072), "0 B de 128 KB (0 %)");
 });
+
+// ------------------------------------------------------------------ gráficos
+
+test("niceTicks: marcas redondas que cubren el rango", () => {
+  assert.deepEqual(UI.niceTicks(0, 100, 5), [0, 20, 40, 60, 80, 100]);
+  assert.deepEqual(UI.niceTicks(-1, 1, 5), [-1, -0.5, 0, 0.5, 1]);
+  assert.deepEqual(UI.niceTicks(22.3, 27.9, 6), [23, 24, 25, 26, 27]);
+  // Rango nulo (variable constante): igual hay marcas alrededor del valor.
+  const flat = UI.niceTicks(250, 250, 5);
+  assert.ok(flat.length >= 2 && flat[0] <= 250 && flat[flat.length - 1] >= 250);
+  // Con pocas marcas pedidas (una franja baja) igual hay al menos una dentro del rango.
+  const few = UI.niceTicks(21.85, 28.19, 1);
+  assert.ok(few.length >= 1 && few.every((v) => v >= 21.85 && v <= 28.19), String(few));
+});
+
+test("parseSerialValues: números de una línea del monitor serie", () => {
+  assert.deepEqual(UI.parseSerialValues("temp=25.1 hum=40"), { names: ["temp", "hum"], values: [25.1, 40] });
+  assert.deepEqual(UI.parseSerialValues("temp: -3.5e2, rpm:1200\r"), { names: ["temp", "rpm"], values: [-350, 1200] });
+  assert.deepEqual(UI.parseSerialValues("1.5, 3, -7"), { names: null, values: [1.5, 3, -7] });
+  assert.deepEqual(UI.parseSerialValues("10\t20 30"), { names: null, values: [10, 20, 30] });
+  // La salida de 04_contador_serie: se grafican los pares nombre = valor.
+  assert.deepEqual(UI.parseSerialValues("contador = 171   LEDs = 10101011   (0xAB)").names, ["contador", "LEDs"]);
+  assert.equal(UI.parseSerialValues("=== 05_contador_rtt - STM32H503 ==="), null);
+  assert.equal(UI.parseSerialValues(""), null);
+});
+
+test("fmtValue: valores compactos", () => {
+  assert.equal(UI.fmtValue(1000), "1000");
+  assert.equal(UI.fmtValue(0.123456), "0.1235");
+  assert.equal(UI.fmtValue(-2.5), "-2.5");
+  assert.equal(UI.fmtValue(123456789), "1.235e+8");
+  assert.equal(UI.fmtValue(null), "—");
+});
+
+test("samplesCsv: exportar lo graficado", () => {
+  const csv = UI.samplesCsv(["seno", "sensor.adc"], [[0, 0.5, 2048], [0.02, -0.25, 2050]]);
+  assert.equal(csv, "t_s,seno,sensor.adc\n0,0.5,2048\n0.02,-0.25,2050\n");
+});

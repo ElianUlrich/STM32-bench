@@ -114,8 +114,63 @@
     return { tone: look[0], title: report.summary.text, icon: look[1] };
   }
 
+  // ---------------------------------------------------------------- gráficos
+
+  // Marcas "redondas" (1, 2 o 5 por potencia de 10) para un eje de min a max: unas `count`.
+  function niceTicks(min, max, count) {
+    if (!(isFinite(min) && isFinite(max))) return [];
+    if (max - min < 1e-12) {
+      const pad = Math.abs(min) > 1e-12 ? Math.abs(min) * 0.1 : 1;
+      min -= pad;
+      max += pad;
+    }
+    const raw = (max - min) / Math.max(1, count);
+    const pow = Math.pow(10, Math.floor(Math.log10(raw)));
+    let step = [1, 2, 5, 10].map((m) => m * pow).find((s) => s >= raw * 0.999);
+    for (;;) {
+      const ticks = [];
+      for (let v = Math.ceil(min / step - 1e-9) * step; v <= max + step * 1e-9; v += step) {
+        ticks.push(Number((Math.abs(v) < step * 1e-9 ? 0 : v).toPrecision(12)));
+      }
+      if (ticks.length) return ticks;
+      step /= 2;              // ningún múltiplo del paso cae en el rango: uno más fino
+    }
+  }
+
+  const NUM = "[-+]?(?:\\d+\\.?\\d*|\\.\\d+)(?:[eE][-+]?\\d+)?";
+  const PAIR_RE = new RegExp(`([A-Za-z_][\\w.\\[\\]]*)\\s*[=:]\\s*(${NUM})`, "g");
+  const ONLY_NUMBERS_RE = new RegExp(`^\\s*${NUM}(?:\\s*[,;\\s]\\s*${NUM})*\\s*[,;]?\\s*$`);
+
+  // Números de una línea del monitor serie: "temp=25.1 hum=40" (con nombres) o "1.5, 3, 7".
+  function parseSerialValues(line) {
+    if (!line) return null;
+    const names = [], values = [];
+    for (const m of line.matchAll(PAIR_RE)) {
+      names.push(m[1]);
+      values.push(Number(m[2]));
+    }
+    if (names.length) return { names, values };
+    if (!ONLY_NUMBERS_RE.test(line)) return null;
+    return { names: null, values: line.match(new RegExp(NUM, "g")).map(Number) };
+  }
+
+  // Valor compacto para leyendas y tooltips.
+  function fmtValue(v) {
+    if (v === null || v === undefined || !isFinite(v)) return "—";
+    if (Number.isInteger(v) && Math.abs(v) < 1e7) return String(v);
+    if (Math.abs(v) >= 1e7 || (Math.abs(v) < 1e-3 && v !== 0)) return v.toExponential(3).replace(/\.?0+e/, "e");
+    return String(Number(v.toPrecision(4)));
+  }
+
+  // CSV de las muestras ([t, v1, v2...]) para abrir en Excel o Python.
+  function samplesCsv(names, samples) {
+    const rows = [["t_s"].concat(names).join(",")];
+    for (const s of samples) rows.push(s.map((v) => (v === null || v === undefined ? "" : String(v))).join(","));
+    return rows.join("\n") + "\n";
+  }
+
   const api = { fmtAgo, shortChipName, chipLabels, fmtElapsed, stageLabel, progressText, stepStates, filterProjects,
-    fmtBytes, usedText, readSummary };
+    fmtBytes, usedText, readSummary, niceTicks, parseSerialValues, fmtValue, samplesCsv };
   if (typeof module === "object" && module.exports) module.exports = api;
   else root.UI = api;
 })(typeof globalThis !== "undefined" ? globalThis : this);

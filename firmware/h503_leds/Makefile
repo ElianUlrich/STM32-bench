@@ -13,7 +13,7 @@ OBJCOPY := $(PREFIX)objcopy
 SIZE    := $(PREFIX)size
 
 BUILD     := build
-PROGRAMAS := 01_blink_todos 02_auto_fantastico 03_contador_binario 04_contador_serie 05_contador_rtt
+PROGRAMAS := 01_blink_todos 02_auto_fantastico 03_contador_binario 04_contador_serie 05_contador_rtt 06_ondas
 COMUNES   := src/startup_stm32h503.c src/placa.c
 # Fuentes que usa sólo un programa.
 EXTRA_04_contador_serie := src/serie.c

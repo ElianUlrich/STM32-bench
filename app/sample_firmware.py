@@ -167,6 +167,7 @@ DEMO_TARGETS = {
     "h503-contador/build/03_contador_binario.elf": "stm32h503cb",
     "h503-contador/build/04_contador_serie.elf": "stm32h503cb",
     "h503-contador/build/05_contador_rtt.elf": "stm32h503cb",
+    "h503-contador/build/06_ondas.elf": "stm32h503cb",
 }
 
 
@@ -180,7 +181,7 @@ def seed_debug_project(projects_dir: Path) -> None:
         return
     (dest / "build").mkdir(parents=True)
     (dest / "src").mkdir()
-    for programa in ("03_contador_binario", "04_contador_serie", "05_contador_rtt"):
+    for programa in ("03_contador_binario", "04_contador_serie", "05_contador_rtt", "06_ondas"):
         f = src / "build" / f"{programa}.elf"
         if f.is_file():
             (dest / "build" / f.name).write_bytes(f.read_bytes())

@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from . import esp_project
 from . import files as fileops
@@ -342,6 +342,40 @@ async def rtt_open(body: RttOpenBody, request: Request, _: str = Depends(require
 @router.post("/gdb/stop")
 async def gdb_stop(request: Request, _: str = Depends(require_user)) -> Dict[str, Any]:
     return await get_bench(request).stop_gdb()
+
+
+# ------------------------------------------------------------- variables en vivo
+
+class LiveStartBody(BaseModel):
+    chip: str
+    interface: Optional[str] = None
+    probe_serial: Optional[str] = None
+    file: str
+    variables: List[str] = Field(default_factory=list)
+    rate_hz: int = 20
+
+
+@router.get("/live")
+async def live_status(request: Request, _: str = Depends(require_user)) -> Dict[str, Any]:
+    """Estado del muestreo y las últimas muestras (para redibujar el gráfico)."""
+    return get_bench(request).live.status()
+
+
+@router.get("/live/variables")
+async def live_variables(request: Request, file: str, _: str = Depends(require_user)) -> Dict[str, Any]:
+    _, variables = await asyncio.get_running_loop().run_in_executor(None, get_bench(request).live_variables, file)
+    return {"file": file, "variables": [v.to_public() for v in variables]}
+
+
+@router.post("/live/start")
+async def live_start(body: LiveStartBody, request: Request, _: str = Depends(require_user)) -> Dict[str, Any]:
+    return await get_bench(request).start_live(body.chip, body.interface, body.probe_serial, body.file,
+                                               body.variables, body.rate_hz)
+
+
+@router.post("/live/stop")
+async def live_stop(request: Request, _: str = Depends(require_user)) -> Dict[str, Any]:
+    return await get_bench(request).live.stop()
 
 
 # ------------------------------------------------------------------- depurador web

@@ -112,6 +112,114 @@ def rtt_cliente(conn):
         conn.close()
 
 
+# ------------------------------------------------- puerto TCL: muestrear variables
+
+T0 = time.monotonic()
+
+
+def valor_simulado(var, t):
+    """Lo que valdría la variable del programa grabado a los t segundos (06_ondas y genéricos)."""
+    import math
+    ms = int(t * 1000)
+    tri = lambda periodo: 1 - abs((t / periodo) % 1 * 2 - 1)            # 0..1..0
+    nombre = var.name.split(" (")[0]
+    fijos = {"frecuencia_hz": 1.0, "amplitud": 1.0, "periodo_ms": 250, "paso_ms": 80, "pausado": 0}
+    if nombre in fijos:
+        return fijos[nombre]
+    if nombre == "seno":
+        return math.sin(2 * math.pi * t)
+    if nombre == "fase":
+        return t % 1
+    if nombre == "triangular":
+        return 100 * tri(2.0)
+    if nombre == "cuadrada":
+        return 1000 if ms % 500 < 250 else -1000
+    if nombre == "ms_transcurridos":
+        return ms
+    if nombre == "contador":
+        return ms // (100 if "06_ondas" in str(mock_state.running_elf(STATE, "stm32")) else 250)
+    if nombre == "sensor.temperatura":
+        return 25 + 3 * math.sin(2 * math.pi * t / 20) + 0.2 * math.sin(2 * math.pi * t * 1.3)
+    if nombre == "sensor.adc":
+        return int(2048 + 2000 * math.sin(2 * math.pi * t / 5))
+    if nombre == "sensor.estado":
+        return 1 if math.cos(2 * math.pi * t / 20) > 0 else -1
+    m = re.match(r"ultimas\[(\d)\]$", nombre)
+    if m:
+        return int(1000 * math.sin(2 * math.pi * (t - 0.1 * (int(m.group(1)) + 1))))
+    # Cualquier otra: una onda según la dirección, del tipo de la variable.
+    periodo = 1 + (var.address >> 2) % 7
+    if var.kind.startswith("f"):
+        return math.sin(2 * math.pi * t / periodo)
+    return int(100 * tri(periodo))
+
+
+def bytes_simulados(var, t):
+    import struct as st
+    from app.livevars import KINDS
+    size, fmt = KINDS[var.kind]
+    v = valor_simulado(var, t)
+    if var.kind.startswith("f"):
+        return st.pack(fmt, float(v))
+    return (int(v) & ((1 << (8 * size)) - 1)).to_bytes(size, "little")
+
+
+def leer_memoria(direccion, ancho, cantidad, variables, t):
+    """Palabras que devuelve read_memory: de las variables del programa grabado; el resto, 0."""
+    paso = ancho // 8
+    memoria = {}
+    for var in variables:
+        for i, b in enumerate(bytes_simulados(var, t)):
+            memoria[var.address + i] = b
+    palabras = []
+    for k in range(cantidad):
+        base = direccion + k * paso
+        palabras.append(int.from_bytes(bytes(memoria.get(base + i, 0) for i in range(paso)), "little"))
+    return palabras
+
+
+def tcl_server(host, port):
+    """Puerto TCL simulado: responde los read_memory con las variables del .elf grabado."""
+    srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    srv.bind((host, port))
+    srv.listen(2)
+    while True:
+        conn, _ = srv.accept()
+        threading.Thread(target=tcl_cliente, args=(conn,), daemon=True).start()
+
+
+def tcl_cliente(conn):
+    from app.livevars import list_variables
+    cache = {}
+    buf = b""
+    try:
+        while True:
+            datos = conn.recv(4096)
+            if not datos:
+                return
+            buf += datos
+            while b"\x1a" in buf:
+                cmd, buf = buf.split(b"\x1a", 1)
+                elf = mock_state.running_elf(STATE, "stm32")
+                if elf not in cache:
+                    cache[elf] = list_variables(Path(elf)) if elf and os.path.isfile(elf) else []
+                lecturas = re.findall(r"read_memory (0x[0-9a-fA-F]+) (\d+) (\d+)", cmd.decode(errors="replace"))
+                if os.environ.get("BENCH_MOCK_RDP") == "1" and lecturas:
+                    resp = f"ERROR Failed to read memory at {lecturas[0][0]}"
+                else:
+                    t = time.monotonic() - T0
+                    palabras = []
+                    for d, w, n in lecturas:
+                        palabras += leer_memoria(int(d, 16), int(w), int(n), cache[elf], t)
+                    resp = " ".join(f"0x{p:x}" for p in palabras)
+                conn.sendall(resp.encode() + b"\x1a")
+    except OSError:
+        return
+    finally:
+        conn.close()
+
+
 def main(argv):
     if "--version" in argv:
         out("Open On-Chip Debugger 0.12.0+dev-mock (stm32-bench simulado)", 0)
@@ -150,6 +258,10 @@ def main(argv):
         bind = next((c.split()[1] for c in cmds if c.startswith("bindto ")), "127.0.0.1")
         threading.Thread(target=gdb_server, args=(bind, int(port)), daemon=True).start()
         out(f"Info : Listening on port {port} for gdb connections")
+        tcl = next((c.split()[1] for c in cmds if c.startswith("tcl_port ")), "disabled")
+        if tcl != "disabled":
+            threading.Thread(target=tcl_server, args=(bind, int(tcl)), daemon=True).start()
+            out(f"Info : Listening on port {tcl} for tcl connections")
         setup = next((c for c in cmds if c.startswith("rtt setup ")), None)
         server = next((c for c in cmds if c.startswith("rtt server start ")), None)
         if setup and "rtt start" in cmds:
@@ -209,6 +321,7 @@ def main(argv):
             else:
                 image = convert_to_bin(Path(path), FLASH_BASE, FLASH_BASE + 0x1000000)
                 mock_state.flash_write(STATE, "stm32", image.address, image.data)
+            mock_state.set_running_elf(STATE, "stm32", path if path.lower().endswith(".elf") else None)
             out("Info : Device: STM32 (mock)")
             out("Info : flash size probed value 1024k", 1.0)
             out("** Programming Finished **")
@@ -230,6 +343,7 @@ def main(argv):
             out(f"verified {os.path.getsize(path)} bytes in 0.412s (mock)", 0.5)
         elif cmd.startswith("flash erase_sector") or "mass_erase" in cmd:
             mock_state.flash_erase(STATE, "stm32")
+            mock_state.set_running_elf(STATE, "stm32", None)
             bank = cmd.split()[2] if cmd.startswith("flash erase_sector") else "0"
             out(f"erased sectors 0 through 7 on flash bank {bank} in 3.1s", 1.5)
         elif cmd in ("halt", "reset halt"):

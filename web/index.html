@@ -8,6 +8,8 @@
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="style.css">
   <script src="ui-utils.js" defer></script>
+  <script src="plot.js" defer></script>
+  <script src="graphs.js" defer></script>
   <script src="app.js" defer></script>
 </head>
 <body>
@@ -24,6 +26,8 @@
     <symbol id="i-step-over" viewBox="0 0 24 24"><path d="M4 14a8 8 0 0 1 15-4"/><path d="M20 4v6h-6"/><circle cx="12" cy="19" r="1.6"/></symbol>
     <symbol id="i-step-into" viewBox="0 0 24 24"><path d="M12 3v11M7 9l5 5 5-5"/><circle cx="12" cy="19.5" r="1.6"/></symbol>
     <symbol id="i-step-out" viewBox="0 0 24 24"><path d="M12 15V4M7 9l5-5 5 5"/><circle cx="12" cy="19.5" r="1.6"/></symbol>
+    <symbol id="i-chart" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 15l3.5-5 3 3L20 6"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5"/><path d="M5 20h14"/></symbol>
     <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1.5"/></symbol>
     <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
     <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></symbol>
@@ -217,6 +221,8 @@
             <svg class="ic" aria-hidden="true"><use href="#i-folder"/></svg>Archivos</button>
           <button type="button" role="tab" id="tabbtn-debug" aria-controls="tab-debug" data-tab="debug">
             <svg class="ic" aria-hidden="true"><use href="#i-bug"/></svg>Depurar</button>
+          <button type="button" role="tab" id="tabbtn-graphs" aria-controls="tab-graphs" data-tab="graphs">
+            <svg class="ic" aria-hidden="true"><use href="#i-chart"/></svg>Gráficos</button>
           <button type="button" role="tab" id="tabbtn-micro" aria-controls="tab-micro" data-tab="micro">
             <svg class="ic" aria-hidden="true"><use href="#i-chip"/></svg>Micro</button>
           <button type="button" role="tab" id="tabbtn-serial" aria-controls="tab-serial" data-tab="serial">
@@ -367,6 +373,70 @@
               </div>
             </div>
           </details>
+        </div>
+
+        <div class="tab" id="tab-graphs" role="tabpanel" aria-labelledby="tabbtn-graphs" hidden>
+          <div class="graphs-bar">
+            <div class="segmented graphs-source" id="seg-graph-source" role="radiogroup" aria-label="Qué graficar">
+              <button type="button" role="radio" data-source="micro" class="active" aria-checked="true">
+                <svg class="ic" aria-hidden="true"><use href="#i-chip"/></svg>Variables del micro</button>
+              <button type="button" role="radio" data-source="serial" aria-checked="false">
+                <svg class="ic" aria-hidden="true"><use href="#i-terminal"/></svg>Monitor serie / RTT</button>
+            </div>
+            <div class="graphs-tools">
+              <label class="inline compact">Ventana
+                <select id="sel-graph-window">
+                  <option value="5">5 s</option>
+                  <option value="10" selected>10 s</option>
+                  <option value="30">30 s</option>
+                  <option value="60">1 min</option>
+                  <option value="0">Todo</option>
+                </select></label>
+              <button class="btn small" id="btn-graph-stack" type="button" aria-pressed="true"
+                      title="Una franja por variable, cada una con su escala">Separadas</button>
+              <button class="btn small" id="btn-graph-pause" type="button" aria-pressed="false">
+                <svg class="ic" aria-hidden="true"><use href="#i-pause"/></svg><span>Pausar</span></button>
+              <button class="btn small ghost" id="btn-graph-csv" type="button" title="Descargar lo graficado (CSV)">
+                <svg class="ic" aria-hidden="true"><use href="#i-download"/></svg>CSV</button>
+              <button class="btn small ghost" id="btn-graph-clear" type="button">Limpiar</button>
+            </div>
+          </div>
+          <div class="graphs-body">
+            <section class="graphs-side" id="graphs-micro" aria-label="Variables del micro">
+              <div class="graphs-file" id="graph-file"></div>
+              <input type="search" id="inp-var-filter" placeholder="Buscar variable…" autocomplete="off"
+                     spellcheck="false" aria-label="Buscar variable">
+              <div class="var-list" id="var-list" role="group" aria-label="Variables para graficar"></div>
+              <div class="graphs-run">
+                <label class="inline compact">Muestras/s
+                  <select id="sel-graph-rate">
+                    <option value="10">10</option>
+                    <option value="20" selected>20</option>
+                    <option value="50">50</option>
+                    <option value="100">100</option>
+                  </select></label>
+                <button class="btn primary" id="btn-live-start" type="button">
+                  <svg class="ic" aria-hidden="true"><use href="#i-play"/></svg>Graficar</button>
+                <button class="btn" id="btn-live-stop" type="button" hidden>
+                  <svg class="ic" aria-hidden="true"><use href="#i-stop"/></svg>Detener</button>
+              </div>
+              <p class="note" id="live-note">Se leen con el micro corriendo, sin detenerlo, por el ST-Link.</p>
+            </section>
+            <section class="graphs-side" id="graphs-serial" aria-label="Monitor serie / RTT" hidden>
+              <p class="graphs-help">Se grafica cada línea que llega con números:</p>
+              <pre class="graphs-example">temp=25.1 hum=40
+1.5, 3.2, -7</pre>
+              <p class="graphs-help">Con <code>nombre=valor</code> cada serie lleva su nombre.</p>
+              <label class="check"><input type="checkbox" id="chk-serial-plot"><span>Graficar lo que llega</span></label>
+              <p class="note" id="serial-plot-note"></p>
+            </section>
+            <div class="graphs-main">
+              <div class="graph-wrap">
+                <canvas id="graph-canvas" role="img" aria-label="Gráfico de las variables en el tiempo"></canvas>
+              </div>
+              <div class="graph-legend" id="graph-legend" aria-live="off"></div>
+            </div>
+          </div>
         </div>
 
         <div class="tab" id="tab-micro" role="tabpanel" aria-labelledby="tabbtn-micro" hidden>

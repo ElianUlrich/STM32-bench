@@ -15,6 +15,10 @@ de programación y depuración remota de microcontroladores **STM32**, **ESP32/E
 - **depurar el STM32 desde la misma web** (pestaña *Depurar*): código fuente con breakpoints,
   continuar/pausar/paso a paso, variables locales y globales editables, expresiones, pila y registros
   (ver [Depurar en la web](#depurar-en-la-web-pestaña-depurar));
+- **graficar en el tiempo** variables del programa con el micro corriendo, o los números que llegan
+  por el monitor serie / RTT (ver [Gráficos](#gráficos-en-el-tiempo-pestaña-gráficos));
+- **leer qué tiene grabado** cada placa y guardar una copia de respaldo lista para volver a grabar
+  (ver [Leer el micro](#leer-el-micro-pestaña-micro));
 - o levantar un **servidor GDB** para depurar desde `arm-none-eabi-gdb`, VS Code o STM32CubeIDE;
 - ver en vivo la salida de OpenOCD/dfu-util y un **monitor serie**, que también muestra el
   **RTT** del programa (el `printf` por el mismo ST-Link, sin adaptador USB-serie);
@@ -651,6 +655,38 @@ Notas:
   avisa al continuar.
 - Sólo STM32 por SWD. Todavía no hay vista de memoria, watchpoints ni periféricos por nombre (SVD).
 
+## Gráficos en el tiempo (pestaña *Gráficos*)
+
+Grafica valores mientras el programa corre, sin poner breakpoints ni detener el micro. Hay dos fuentes.
+
+**Variables del micro (STM32 por ST-Link).** Elegí el `.elf` en *Archivos*. La pestaña lista sus
+variables globales y `static` con tipo y dirección (sale del DWARF, igual que en *Depurar*), incluidos
+los campos de los `struct` (`sensor.temperatura`) y los elementos de los arrays (`ultimas[3]`). Marcá
+hasta 8, elegí las muestras por segundo (10 a 100) y tocá **Graficar**. Las constantes (`const`, en
+flash) no se ofrecen porque no cambian.
+
+- Las variables se leen por el bus de depuración con el micro corriendo (`read_memory` de OpenOCD),
+  así que el programa no se entera. Si una variable cambia más rápido que el muestreo, se ven
+  muestras sueltas, no cada valor: para eventos rápidos sigue siendo mejor un breakpoint o RTT.
+- Usa el mismo OpenOCD que el servidor GDB, *Depurar* y RTT: se puede graficar mientras se depura,
+  y con un GDB de la PC conectado.
+- **Separadas** pone una franja por variable, cada una con su escala. Sirve cuando mezclás, por
+  ejemplo, una senoidal de ±1 con un contador de miles. Con el cursor sobre el gráfico se ven los
+  valores de ese instante; tocando una variable de la leyenda se oculta o se muestra.
+- **Pausar** congela la vista (las muestras siguen llegando), **CSV** descarga lo graficado y
+  **Ventana** elige cuántos segundos se ven.
+- Para probarlo: `firmware/h503_leds/build/06_ondas.elf` (senoidal, triangular, cuadrada, contador, un
+  `struct` y un array). Con `set var frecuencia_hz = 3` en *Depurar* o GDB, la senoidal cambia en vivo.
+
+**Monitor serie / RTT.** Activá *Graficar lo que llega* y abrí el puerto en *Monitor serie*. Cada
+línea con números se grafica: `temp=25.1 hum=40` o `temp: 25.1, hum: 40` (cada serie con su nombre),
+o `1.5, 3.2, -7` (valor 1, valor 2...). Las líneas sin números se ignoran. Es el "Serial Plotter" del
+IDE de Arduino, pero en la web, y funciona igual con el canal RTT.
+
+**Seguridad del puerto TCL.** Para leer variables, OpenOCD abre su puerto TCL, que acepta cualquier
+comando. Por eso OpenOCD escucha sólo en `127.0.0.1`, y la app reenvía a la red (Tailscale, según
+`gdb.bind`) únicamente el puerto GDB y el del canal RTT, como antes (`app/relay.py`).
+
 ## Depurar con GDB
 
 En la pestaña **Servidor GDB**, "Iniciar" lanza OpenOCD en modo servidor con el chip, la interfaz y el
@@ -858,6 +894,8 @@ app/
   firmware_meta.py   vínculo archivo -> placa (firmware_meta.json)
   files.py           validación, subida, escaneo, borrado
   convert.py         .elf/.hex -> .bin (DFU), .bin -> .hex
+  livevars.py        gráficos: variables del .elf (DWARF) y muestreo por el puerto TCL de OpenOCD
+  relay.py           reenvío TCP: publica en la red el puerto GDB y el RTT de OpenOCD (que escucha en 127.0.0.1)
   readback.py        leer el micro: análisis de la flash, coincidencias con archivos, lecturas guardadas
   reading.py         leer el micro: trabajos por SWD/DFU/esptool/avrdude y copia de respaldo
   progress.py        etapas y porcentaje de cada trabajo a partir de la salida de las herramientas
@@ -869,7 +907,8 @@ app/
   system.py          estado del sistema, apagar/reiniciar
   events.py          bus para Server-Sent Events
   history.py         historial (JSON Lines)
-web/                 index.html, app.js, style.css, login (sin build, sin dependencias JS)
+web/                 index.html, app.js, graphs.js, plot.js (gráfico en canvas), style.css, login
+                     (sin build, sin dependencias JS)
 config/              chips.yaml, bench.yaml, bench.example.env
 scripts/             desplegar.ps1, instalar_todo.sh, build_openocd.sh, build_gdb.sh, install.sh, hash_password.py, dev_run.*, simuladores
 deploy/              systemd, udev, sudoers
@@ -966,6 +1005,12 @@ Verificalo en la BeagleBoard:
     y sin confirmar); el mensaje real de OpenOCD con RDP nivel 1; el formato de las líneas de progreso
     de `esptool read_flash` 4.12 con el ESP32-P4; y `avrdude -U flash:r` por bootloader (Uno, Nano
     viejo, Leonardo), que puede no leer la zona del bootloader.
+25. **Gráficos de variables**: `read_memory` por el puerto TCL del OpenOCD de ST con el micro corriendo
+    (H503 y H723), cuántas muestras por segundo se logran de verdad con la xM y un ST-Link/V2, que
+    funcione mientras *Depurar* tiene el micro detenido o corriendo, y `06_ondas` en la placa.
+26. **Reenvío de puertos** (`relay.py`): un GDB de la PC (arm-none-eabi-gdb, VS Code, CubeIDE) y el
+    canal RTT por Tailscale a través del reenvío, y que OpenOCD ya no aparezca escuchando en la IP de
+    Tailscale (`ss -ltnp`).
 
 ## Licencia
 

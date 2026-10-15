@@ -181,22 +181,28 @@ class RttConfig:
 
 
 def gdb_server_args(setup: OpenOcdSetup, swd: SwdParams, port: int, bind_ip: str,
-                    rtt: Optional[RttConfig] = None) -> List[str]:
+                    rtt: Optional[RttConfig] = None, tcl_port: Optional[int] = None) -> List[str]:
     """OpenOCD como servidor GDB persistente (y, si el programa lo tiene, servidor RTT).
 
-    telnet y tcl se deshabilitan: "bindto" aplica a todos los puertos y no
-    queremos exponer la consola de OpenOCD en la red. Quedan el puerto GDB y,
-    con RTT, el del canal 0 (sólo datos del programa, sin comandos de OpenOCD).
+    telnet se deshabilita. El puerto TCL (con él la app muestrea variables con el
+    micro corriendo) acepta cualquier comando de OpenOCD, y como "bindto" aplica a
+    todos los puertos, sólo se habilita si OpenOCD escucha en 127.0.0.1: a la red
+    salen el puerto GDB y el del canal RTT, reenviados por la app (relay.py).
     """
     if not 1024 <= int(port) <= 65535:
         raise CommandError("Puerto GDB fuera de rango")
     import ipaddress
     ipaddress.ip_address(bind_ip)  # lanza ValueError si no es una IP
+    if tcl_port is not None:
+        if bind_ip != "127.0.0.1":
+            raise CommandError("El puerto TCL de OpenOCD sólo puede escuchar en 127.0.0.1")
+        if not 1024 <= int(tcl_port) <= 65535 or int(tcl_port) == int(port):
+            raise CommandError("Puerto TCL inválido")
     config = [
         f"bindto {bind_ip}",
         f"gdb_port {int(port)}",
         "telnet_port disabled",
-        "tcl_port disabled",
+        f"tcl_port {int(tcl_port)}" if tcl_port is not None else "tcl_port disabled",
     ]
     after_init: List[str] = []
     if rtt is not None:

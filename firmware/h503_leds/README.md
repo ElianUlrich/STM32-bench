@@ -1,6 +1,6 @@
 # Firmware de prueba — STM32H503CBT6 con LEDs en PA0..PA7
 
-Cinco programas mínimos (C sin HAL, 1-2 KB cada uno) para probar el banco. Ya vienen compilados en
+Seis programas mínimos (C sin HAL, 1-2 KB cada uno) para probar el banco. Ya vienen compilados en
 `build/` (`.elf`, `.hex`, `.bin`); sólo hay que subirlos desde la web.
 
 | Programa | Qué hace | Para probar |
@@ -10,6 +10,7 @@ Cinco programas mínimos (C sin HAL, 1-2 KB cada uno) para probar el banco. Ya v
 | `03_contador_binario` | Cuenta 0..255 en binario (PA0 = bit 0) cada 250 ms | Servidor GDB: `print contador`, `set var contador = 0xAA`, breakpoints |
 | `04_contador_serie` | El mismo contador, pero manda cada valor por **USART1** (PA9/PA10, 115200 8N1) y acepta comandos | **Monitor serie** de la web (recibir y enviar) y la pestaña Depurar |
 | `05_contador_rtt` | El mismo contador, pero por **RTT**: el texto viaja por el ST-Link (SWD), sin adaptador ni cables extra | Monitor serie → puerto "RTT — por el ST-Link"; funciona también mientras se depura |
+| `06_ondas` | Senoidal, triangular, cuadrada, contador, un `struct` ("sensor") y un array, actualizados cada 1 ms; la senoidal también en los LEDs como barra | Pestaña **Gráficos** → Variables del micro. `set var frecuencia_hz = 3` desde Depurar o GDB la cambia en vivo |
 
 ## Puerto serie (04_contador_serie)
 

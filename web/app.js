@@ -668,6 +668,7 @@ function setFile(file) {
   if (!state.file || !file || state.file.path !== file.path) $("sel-esp-scope").value = "file";
   state.file = file;
   if (state.tab === "debug" && !dbgActive()) loadDebugSources();
+  if (state.tab === "graphs") loadLiveVariables();
   const box = $("fw-selected");
   if (file) {
     const chip = chipById(file.target);
@@ -1019,6 +1020,7 @@ function onJobStarted(job) {
   state.titleFlag = false;
   state.log.touched = false;
   announce(`Empezó: ${job.description}`);
+  renderLiveControls();
 }
 
 function onJobFinished(job) {
@@ -1026,6 +1028,7 @@ function onJobFinished(job) {
   announce(job.message);
   if (job.state === "error") setLogOpen(true);   // el detalle del error, a la vista
   scheduleDismiss();
+  setTimeout(renderLiveControls);                 // state.job ya quedó en null
 }
 
 // --------------------------------------------------------------- servidor GDB
@@ -2056,10 +2059,12 @@ function handleEvent(ev) {
       break;
     case "serial":
       appendSerial(ev.data, ev.meta);
+      if (!ev.meta) onSerialText(ev.data);
       break;
     case "serial_status":
       state.serial = Object.assign(state.serial || {}, ev.status);
       renderSerialStatus();
+      renderSerialPlotNote();
       break;
     case "files_changed":
       loadFiles();
@@ -2069,6 +2074,12 @@ function handleEvent(ev) {
       break;
     case "debug":
       applyDebugStatus(ev.status);
+      break;
+    case "live":
+      onLiveSamples(ev.samples);
+      break;
+    case "live_status":
+      applyLiveStatus(ev.status, false);
       break;
   }
 }
@@ -2098,8 +2109,8 @@ function handlePrompt(ev) {
 
 // ------------------------------------------------------------ pestañas / UI
 
-const TAB_HASH = { files: "archivos", debug: "depurar", micro: "micro", serial: "serie", history: "historial",
-  system: "sistema" };
+const TAB_HASH = { files: "archivos", debug: "depurar", graphs: "graficos", micro: "micro", serial: "serie",
+  history: "historial", system: "sistema" };
 const HASH_TAB = Object.fromEntries(Object.entries(TAB_HASH).map(([k, v]) => [v, k]));
 
 function showTab(name, opts) {
@@ -2124,6 +2135,7 @@ function showTab(name, opts) {
   if (name === "debug") loadDebugSources();
   if (name === "files" && state.scrollToFile) renderFiles();
   if (name === "micro") loadReadback();
+  if (name === "graphs") loadGraphs();
 }
 
 function bindUI() {
@@ -2347,6 +2359,7 @@ function bindSplitter() {
 
 async function init() {
   bindUI();
+  bindGraphs();
   try {
     const me = await api("GET", "/api/me");
     $("user-name").textContent = me.user;

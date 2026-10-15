@@ -93,3 +93,22 @@ def flash_read(state_dir: Path, device: str, address: int, size: int) -> bytes:
         if start < end:
             out[start - address:end - address] = data[start - addr:end - addr]
     return bytes(out)
+
+
+# ------------------------------------------------------- programa que "corre"
+
+def set_running_elf(state_dir: Path, device: str, elf: Optional[str]) -> None:
+    """El .elf grabado (o None si se borró o se grabó un .bin/.hex): de ahí salen
+    las variables que el OpenOCD simulado devuelve al muestrear."""
+    path = Path(state_dir) / f"mock_program_{device}.json"
+    if elf is None:
+        path.unlink(missing_ok=True)
+    else:
+        path.write_text(json.dumps({"elf": str(elf)}), encoding="utf-8")
+
+
+def running_elf(state_dir: Path, device: str) -> Optional[str]:
+    try:
+        return json.loads((Path(state_dir) / f"mock_program_{device}.json").read_text(encoding="utf-8"))["elf"]
+    except (OSError, ValueError, KeyError):
+        return None

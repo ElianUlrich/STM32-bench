@@ -112,6 +112,17 @@ def test_gdb_server():
         o.gdb_server_args(setup(), H7, 80, "127.0.0.1")
 
 
+def test_gdb_server_tcl_port_only_on_localhost():
+    # El puerto TCL (para muestrear variables) acepta cualquier comando: nunca en la red.
+    c = pairs(o.gdb_server_args(setup(), H7, 40001, "127.0.0.1", tcl_port=40002))
+    assert c[:4] == ["bindto 127.0.0.1", "gdb_port 40001", "telnet_port disabled", "tcl_port 40002"]
+    for ip in ("100.64.1.2", "0.0.0.0"):
+        with pytest.raises(o.CommandError):
+            o.gdb_server_args(setup(), H7, 40001, ip, tcl_port=40002)
+    with pytest.raises(o.CommandError):
+        o.gdb_server_args(setup(), H7, 40001, "127.0.0.1", tcl_port=40001)
+
+
 # --- dfu-util -------------------------------------------------------------------
 
 TARGET = d.DfuTarget(command=("dfu-util",), vid_pid="0483:df11", alt=0, serial="3957377B3432")

@@ -1,0 +1,313 @@
+Archive member included to satisfy reference by file (symbol)
+
+C:/ST/STM32CubeIDE_1.19.0/STM32CubeIDE/plugins/com.st.stm32cube.ide.mcu.externaltools.gnu-tools-for-stm32.13.3.rel1.win32_1.0.0.202411081344/tools/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v8-m.main/nofp\libgcc.a(_arm_mulsf3.o)
+                              C:\Users\elian\AppData\Local\Temp\ccVNENRk.o (__aeabi_fmul)
+C:/ST/STM32CubeIDE_1.19.0/STM32CubeIDE/plugins/com.st.stm32cube.ide.mcu.externaltools.gnu-tools-for-stm32.13.3.rel1.win32_1.0.0.202411081344/tools/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v8-m.main/nofp\libgcc.a(_arm_addsubsf3.o)
+                              C:\Users\elian\AppData\Local\Temp\ccVNENRk.o (__aeabi_fsub)
+C:/ST/STM32CubeIDE_1.19.0/STM32CubeIDE/plugins/com.st.stm32cube.ide.mcu.externaltools.gnu-tools-for-stm32.13.3.rel1.win32_1.0.0.202411081344/tools/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v8-m.main/nofp\libgcc.a(_arm_muldivsf3.o)
+                              C:\Users\elian\AppData\Local\Temp\ccVNENRk.o (__aeabi_fdiv)
+C:/ST/STM32CubeIDE_1.19.0/STM32CubeIDE/plugins/com.st.stm32cube.ide.mcu.externaltools.gnu-tools-for-stm32.13.3.rel1.win32_1.0.0.202411081344/tools/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v8-m.main/nofp\libgcc.a(_arm_cmpsf2.o)
+                              C:\Users\elian\AppData\Local\Temp\ccVNENRk.o (__aeabi_fcmplt)
+C:/ST/STM32CubeIDE_1.19.0/STM32CubeIDE/plugins/com.st.stm32cube.ide.mcu.externaltools.gnu-tools-for-stm32.13.3.rel1.win32_1.0.0.202411081344/tools/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v8-m.main/nofp\libgcc.a(_arm_fixsfsi.o)
+                              C:\Users\elian\AppData\Local\Temp\ccVNENRk.o (__aeabi_f2iz)
+C:/ST/STM32CubeIDE_1.19.0/STM32CubeIDE/plugins/com.st.stm32cube.ide.mcu.externaltools.gnu-tools-for-stm32.13.3.rel1.win32_1.0.0.202411081344/tools/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v8-m.main/nofp\libgcc.a(_arm_fixunssfsi.o)
+                              C:\Users\elian\AppData\Local\Temp\ccVNENRk.o (__aeabi_f2uiz)
+
+Discarded input sections
+
+ .group         0x00000000        0xc C:\Users\elian\AppData\Local\Temp\ccVNENRk.o
+ .group         0x00000000        0xc C:\Users\elian\AppData\Local\Temp\ccVNENRk.o
+ .group         0x00000000        0xc C:\Users\elian\AppData\Local\Temp\ccVNENRk.o
+ .text          0x00000000        0x0 C:\Users\elian\AppData\Local\Temp\ccVNENRk.o
+ .data          0x00000000        0x0 C:\Users\elian\AppData\Local\Temp\ccVNENRk.o
+ .bss           0x00000000        0x0 C:\Users\elian\AppData\Local\Temp\ccVNENRk.o
+ .group         0x00000000        0xc C:\Users\elian\AppData\Local\Temp\ccMUk9fM.o
+ .group         0x00000000        0xc C:\Users\elian\AppData\Local\Temp\ccMUk9fM.o
+ .text          0x00000000        0x0 C:\Users\elian\AppData\Local\Temp\ccMUk9fM.o
+ .data          0x00000000        0x0 C:\Users\elian\AppData\Local\Temp\ccMUk9fM.o
+ .bss           0x00000000        0x0 C:\Users\elian\AppData\Local\Temp\ccMUk9fM.o
+ .debug_macro   0x00000000      0xac0 C:\Users\elian\AppData\Local\Temp\ccMUk9fM.o
+ .debug_macro   0x00000000      0x34e C:\Users\elian\AppData\Local\Temp\ccMUk9fM.o
+ .group         0x00000000        0xc C:\Users\elian\AppData\Local\Temp\cchmdZch.o
+ .group         0x00000000        0xc C:\Users\elian\AppData\Local\Temp\cchmdZch.o
+ .group         0x00000000        0xc C:\Users\elian\AppData\Local\Temp\cchmdZch.o
+ .text          0x00000000        0x0 C:\Users\elian\AppData\Local\Temp\cchmdZch.o
+ .data          0x00000000        0x0 C:\Users\elian\AppData\Local\Temp\cchmdZch.o
+ .bss           0x00000000        0x0 C:\Users\elian\AppData\Local\Temp\cchmdZch.o
+ .text.esperar_ms
+                0x00000000       0x14 C:\Users\elian\AppData\Local\Temp\cchmdZch.o
+ .debug_macro   0x00000000      0xac0 C:\Users\elian\AppData\Local\Temp\cchmdZch.o
+ .debug_macro   0x00000000      0x34e C:\Users\elian\AppData\Local\Temp\cchmdZch.o
+ .debug_macro   0x00000000       0x64 C:\Users\elian\AppData\Local\Temp\cchmdZch.o
+ .text          0x00000000      0x168 C:/ST/STM32CubeIDE_1.19.0/STM32CubeIDE/plugins/com.st.stm32cube.ide.mcu.externaltools.gnu-tools-for-stm32.13.3.rel1.win32_1.0.0.202411081344/tools/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v8-m.main/nofp\libgcc.a(_arm_mulsf3.o)
+ .data          0x00000000        0x0 C:/ST/STM32CubeIDE_1.19.0/STM32CubeIDE/plugins/com.st.stm32cube.ide.mcu.externaltools.gnu-tools-for-stm32.13.3.rel1.win32_1.0.0.202411081344/tools/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v8-m.main/nofp\libgcc.a(_arm_mulsf3.o)
+ .bss           0x00000000        0x0 C:/ST/STM32CubeIDE_1.19.0/STM32CubeIDE/plugins/com.st.stm32cube.ide.mcu.externaltools.gnu-tools-for-stm32.13.3.rel1.win32_1.0.0.202411081344/tools/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v8-m.main/nofp\libgcc.a(_arm_mulsf3.o)
+ .debug_frame   0x00000000       0x24 C:/ST/STM32CubeIDE_1.19.0/STM32CubeIDE/plugins/com.st.stm32cube.ide.mcu.externaltools.gnu-tools-for-stm32.13.3.rel1.win32_1.0.0.202411081344/tools/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v8-m.main/nofp\libgcc.a(_arm_mulsf3.o)
+ .ARM.attributes
+                0x00000000       0x22 C:/ST/STM32CubeIDE_1.19.0/STM32CubeIDE/plugins/com.st.stm32cube.ide.mcu.externaltools.gnu-tools-for-stm32.13.3.rel1.win32_1.0.0.202411081344/tools/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v8-m.main/nofp\libgcc.a(_arm_mulsf3.o)
+ .data          0x00000000        0x0 C:/ST/STM32CubeIDE_1.19.0/STM32CubeIDE/plugins/com.st.stm32cube.ide.mcu.externaltools.gnu-tools-for-stm32.13.3.rel1.win32_1.0.0.202411081344/tools/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v8-m.main/nofp\libgcc.a(_arm_addsubsf3.o)
+ .bss           0x00000000        0x0 C:/ST/STM32CubeIDE_1.19.0/STM32CubeIDE/plugins/com.st.stm32cube.ide.mcu.externaltools.gnu-tools-for-stm32.13.3.rel1.win32_1.0.0.202411081344/tools/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v8-m.main/nofp\libgcc.a(_arm_addsubsf3.o)
+ .data          0x00000000        0x0 C:/ST/STM32CubeIDE_1.19.0/STM32CubeIDE/plugins/com.st.stm32cube.ide.mcu.externaltools.gnu-tools-for-stm32.13.3.rel1.win32_1.0.0.202411081344/tools/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v8-m.main/nofp\libgcc.a(_arm_muldivsf3.o)
+ .bss           0x00000000        0x0 C:/ST/STM32CubeIDE_1.19.0/STM32CubeIDE/plugins/com.st.stm32cube.ide.mcu.externaltools.gnu-tools-for-stm32.13.3.rel1.win32_1.0.0.202411081344/tools/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v8-m.main/nofp\libgcc.a(_arm_muldivsf3.o)
+ .data          0x00000000        0x0 C:/ST/STM32CubeIDE_1.19.0/STM32CubeIDE/plugins/com.st.stm32cube.ide.mcu.externaltools.gnu-tools-for-stm32.13.3.rel1.win32_1.0.0.202411081344/tools/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v8-m.main/nofp\libgcc.a(_arm_cmpsf2.o)
+ .bss           0x00000000        0x0 C:/ST/STM32CubeIDE_1.19.0/STM32CubeIDE/plugins/com.st.stm32cube.ide.mcu.externaltools.gnu-tools-for-stm32.13.3.rel1.win32_1.0.0.202411081344/tools/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v8-m.main/nofp\libgcc.a(_arm_cmpsf2.o)
+ .data          0x00000000        0x0 C:/ST/STM32CubeIDE_1.19.0/STM32CubeIDE/plugins/com.st.stm32cube.ide.mcu.externaltools.gnu-tools-for-stm32.13.3.rel1.win32_1.0.0.202411081344/tools/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v8-m.main/nofp\libgcc.a(_arm_fixsfsi.o)
+ .bss           0x00000000        0x0 C:/ST/STM32CubeIDE_1.19.0/STM32CubeIDE/plugins/com.st.stm32cube.ide.mcu.externaltools.gnu-tools-for-stm32.13.3.rel1.win32_1.0.0.202411081344/tools/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v8-m.main/nofp\libgcc.a(_arm_fixsfsi.o)
+ .data          0x00000000        0x0 C:/ST/STM32CubeIDE_1.19.0/STM32CubeIDE/plugins/com.st.stm32cube.ide.mcu.externaltools.gnu-tools-for-stm32.13.3.rel1.win32_1.0.0.202411081344/tools/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v8-m.main/nofp\libgcc.a(_arm_fixunssfsi.o)
+ .bss           0x00000000        0x0 C:/ST/STM32CubeIDE_1.19.0/STM32CubeIDE/plugins/com.st.stm32cube.ide.mcu.externaltools.gnu-tools-for-stm32.13.3.rel1.win32_1.0.0.202411081344/tools/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v8-m.main/nofp\libgcc.a(_arm_fixunssfsi.o)
+
+Memory Configuration
+
+Name             Origin             Length             Attributes
+FLASH            0x08000000         0x00020000         xr
+RAM              0x20000000         0x00004000         xrw
+*default*        0x00000000         0xffffffff
+
+Linker script and memory map
+
+LOAD C:\Users\elian\AppData\Local\Temp\ccVNENRk.o
+LOAD C:\Users\elian\AppData\Local\Temp\ccMUk9fM.o
+LOAD C:\Users\elian\AppData\Local\Temp\cchmdZch.o
+LOAD C:/ST/STM32CubeIDE_1.19.0/STM32CubeIDE/plugins/com.st.stm32cube.ide.mcu.externaltools.gnu-tools-for-stm32.13.3.rel1.win32_1.0.0.202411081344/tools/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v8-m.main/nofp\libgcc.a
+                0x20004000                        _estack = (ORIGIN (RAM) + LENGTH (RAM))
+
+.isr_vector     0x08000000      0x258
+ *(.isr_vector)
+ .isr_vector    0x08000000      0x258 C:\Users\elian\AppData\Local\Temp\ccMUk9fM.o
+                0x08000000                tabla_vectores
+
+.text           0x08000258      0xa18
+ *(.text*)
+ .text.medio_seno
+                0x08000258       0x40 C:\Users\elian\AppData\Local\Temp\ccVNENRk.o
+ .text.seno_ciclo
+                0x08000298       0x60 C:\Users\elian\AppData\Local\Temp\ccVNENRk.o
+ .text.ondas_paso
+                0x080002f8      0x220 C:\Users\elian\AppData\Local\Temp\ccVNENRk.o
+                0x080002f8                ondas_paso
+ .text.main     0x08000518       0x34 C:\Users\elian\AppData\Local\Temp\ccVNENRk.o
+                0x08000518                main
+ .text.Default_Handler
+                0x0800054c        0x2 C:\Users\elian\AppData\Local\Temp\ccMUk9fM.o
+                0x0800054c                DebugMon_Handler
+                0x0800054c                HardFault_Handler
+                0x0800054c                PendSV_Handler
+                0x0800054c                NMI_Handler
+                0x0800054c                UsageFault_Handler
+                0x0800054c                SecureFault_Handler
+                0x0800054c                Default_Handler
+                0x0800054c                MemManage_Handler
+                0x0800054c                SVC_Handler
+                0x0800054c                BusFault_Handler
+ *fill*         0x0800054e        0x2 
+ .text.Reset_Handler
+                0x08000550       0x40 C:\Users\elian\AppData\Local\Temp\ccMUk9fM.o
+                0x08000550                Reset_Handler
+ .text.reloj_hz
+                0x08000590       0x18 C:\Users\elian\AppData\Local\Temp\cchmdZch.o
+                0x08000590                reloj_hz
+ .text.leds_mostrar
+                0x080005a8       0x14 C:\Users\elian\AppData\Local\Temp\cchmdZch.o
+                0x080005a8                leds_mostrar
+ .text.placa_init
+                0x080005bc       0x70 C:\Users\elian\AppData\Local\Temp\cchmdZch.o
+                0x080005bc                placa_init
+ .text.SysTick_Handler
+                0x0800062c       0x10 C:\Users\elian\AppData\Local\Temp\cchmdZch.o
+                0x0800062c                SysTick_Handler
+ .text          0x0800063c      0x21c C:/ST/STM32CubeIDE_1.19.0/STM32CubeIDE/plugins/com.st.stm32cube.ide.mcu.externaltools.gnu-tools-for-stm32.13.3.rel1.win32_1.0.0.202411081344/tools/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v8-m.main/nofp\libgcc.a(_arm_addsubsf3.o)
+                0x0800063c                __aeabi_frsub
+                0x08000644                __subsf3
+                0x08000644                __aeabi_fsub
+                0x08000648                __aeabi_fadd
+                0x08000648                __addsf3
+                0x080007a8                __aeabi_ui2f
+                0x080007a8                __floatunsisf
+                0x080007b0                __aeabi_i2f
+                0x080007b0                __floatsisf
+                0x080007cc                __aeabi_ul2f
+                0x080007cc                __floatundisf
+                0x080007dc                __aeabi_l2f
+                0x080007dc                __floatdisf
+ .text          0x08000858      0x2a0 C:/ST/STM32CubeIDE_1.19.0/STM32CubeIDE/plugins/com.st.stm32cube.ide.mcu.externaltools.gnu-tools-for-stm32.13.3.rel1.win32_1.0.0.202411081344/tools/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v8-m.main/nofp\libgcc.a(_arm_muldivsf3.o)
+                0x08000858                __mulsf3
+                0x08000858                __aeabi_fmul
+                0x080009c0                __aeabi_fdiv
+                0x080009c0                __divsf3
+ .text          0x08000af8       0xec C:/ST/STM32CubeIDE_1.19.0/STM32CubeIDE/plugins/com.st.stm32cube.ide.mcu.externaltools.gnu-tools-for-stm32.13.3.rel1.win32_1.0.0.202411081344/tools/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v8-m.main/nofp\libgcc.a(_arm_cmpsf2.o)
+                0x08000af8                __gesf2
+                0x08000af8                __gtsf2
+                0x08000b00                __lesf2
+                0x08000b00                __ltsf2
+                0x08000b08                __nesf2
+                0x08000b08                __eqsf2
+                0x08000b08                __cmpsf2
+                0x08000b68                __aeabi_cfrcmple
+                0x08000b70                __aeabi_cfcmpeq
+                0x08000b70                __aeabi_cfcmple
+                0x08000b80                __aeabi_fcmpeq
+                0x08000b94                __aeabi_fcmplt
+                0x08000ba8                __aeabi_fcmple
+                0x08000bbc                __aeabi_fcmpge
+                0x08000bd0                __aeabi_fcmpgt
+ .text          0x08000be4       0x4c C:/ST/STM32CubeIDE_1.19.0/STM32CubeIDE/plugins/com.st.stm32cube.ide.mcu.externaltools.gnu-tools-for-stm32.13.3.rel1.win32_1.0.0.202411081344/tools/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v8-m.main/nofp\libgcc.a(_arm_fixsfsi.o)
+                0x08000be4                __aeabi_f2iz
+                0x08000be4                __fixsfsi
+ .text          0x08000c30       0x40 C:/ST/STM32CubeIDE_1.19.0/STM32CubeIDE/plugins/com.st.stm32cube.ide.mcu.externaltools.gnu-tools-for-stm32.13.3.rel1.win32_1.0.0.202411081344/tools/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v8-m.main/nofp\libgcc.a(_arm_fixunssfsi.o)
+                0x08000c30                __fixunssfsi
+                0x08000c30                __aeabi_f2uiz
+ *(.rodata*)
+                0x08000c70                        . = ALIGN (0x4)
+                0x08000c70                        _sidata = LOADADDR (.data)
+
+.glue_7         0x08000c70        0x0
+ .glue_7        0x08000c70        0x0 linker stubs
+
+.glue_7t        0x08000c70        0x0
+ .glue_7t       0x08000c70        0x0 linker stubs
+
+.vfp11_veneer   0x08000c70        0x0
+ .vfp11_veneer  0x08000c70        0x0 linker stubs
+
+.v4_bx          0x08000c70        0x0
+ .v4_bx         0x08000c70        0x0 linker stubs
+
+.iplt           0x08000c70        0x0
+ .iplt          0x08000c70        0x0 C:\Users\elian\AppData\Local\Temp\ccVNENRk.o
+
+.rel.dyn        0x08000c70        0x0
+ .rel.iplt      0x08000c70        0x0 C:\Users\elian\AppData\Local\Temp\ccVNENRk.o
+
+.data           0x20000000        0x8 load address 0x08000c70
+                0x20000000                        . = ALIGN (0x4)
+                0x20000000                        _sdata = .
+ *(.data*)
+ .data.amplitud
+                0x20000000        0x4 C:\Users\elian\AppData\Local\Temp\ccVNENRk.o
+                0x20000000                amplitud
+ .data.frecuencia_hz
+                0x20000004        0x4 C:\Users\elian\AppData\Local\Temp\ccVNENRk.o
+                0x20000004                frecuencia_hz
+                0x20000008                        . = ALIGN (0x4)
+                0x20000008                        _edata = .
+
+.igot.plt       0x20000008        0x0 load address 0x08000c78
+ .igot.plt      0x20000008        0x0 C:\Users\elian\AppData\Local\Temp\ccVNENRk.o
+
+.bss            0x20000008       0x30 load address 0x08000c78
+                0x20000008                        . = ALIGN (0x4)
+                0x20000008                        _sbss = .
+ *(.bss*)
+ .bss.fase.0    0x20000008        0x4 C:\Users\elian\AppData\Local\Temp\ccVNENRk.o
+ .bss.ultimas   0x2000000c       0x10 C:\Users\elian\AppData\Local\Temp\ccVNENRk.o
+                0x2000000c                ultimas
+ .bss.sensor    0x2000001c        0x8 C:\Users\elian\AppData\Local\Temp\ccVNENRk.o
+                0x2000001c                sensor
+ .bss.contador  0x20000024        0x4 C:\Users\elian\AppData\Local\Temp\ccVNENRk.o
+                0x20000024                contador
+ .bss.cuadrada  0x20000028        0x2 C:\Users\elian\AppData\Local\Temp\ccVNENRk.o
+                0x20000028                cuadrada
+ *fill*         0x2000002a        0x2 
+ .bss.triangular
+                0x2000002c        0x4 C:\Users\elian\AppData\Local\Temp\ccVNENRk.o
+                0x2000002c                triangular
+ .bss.seno      0x20000030        0x4 C:\Users\elian\AppData\Local\Temp\ccVNENRk.o
+                0x20000030                seno
+ .bss.ms_transcurridos
+                0x20000034        0x4 C:\Users\elian\AppData\Local\Temp\cchmdZch.o
+                0x20000034                ms_transcurridos
+ *(COMMON)
+                0x20000038                        . = ALIGN (0x4)
+                0x20000038                        _ebss = .
+OUTPUT(build/06_ondas.elf elf32-littlearm)
+LOAD linker stubs
+
+.debug_info     0x00000000      0x876
+ .debug_info    0x00000000      0x57b C:\Users\elian\AppData\Local\Temp\ccVNENRk.o
+ .debug_info    0x0000057b      0x17a C:\Users\elian\AppData\Local\Temp\ccMUk9fM.o
+ .debug_info    0x000006f5      0x181 C:\Users\elian\AppData\Local\Temp\cchmdZch.o
+
+.debug_abbrev   0x00000000      0x3ea
+ .debug_abbrev  0x00000000      0x1bf C:\Users\elian\AppData\Local\Temp\ccVNENRk.o
+ .debug_abbrev  0x000001bf      0x11d C:\Users\elian\AppData\Local\Temp\ccMUk9fM.o
+ .debug_abbrev  0x000002dc      0x10e C:\Users\elian\AppData\Local\Temp\cchmdZch.o
+
+.debug_loclists
+                0x00000000      0x2d4
+ .debug_loclists
+                0x00000000      0x216 C:\Users\elian\AppData\Local\Temp\ccVNENRk.o
+ .debug_loclists
+                0x00000216       0x63 C:\Users\elian\AppData\Local\Temp\ccMUk9fM.o
+ .debug_loclists
+                0x00000279       0x5b C:\Users\elian\AppData\Local\Temp\cchmdZch.o
+
+.debug_aranges  0x00000000       0xa0
+ .debug_aranges
+                0x00000000       0x38 C:\Users\elian\AppData\Local\Temp\ccVNENRk.o
+ .debug_aranges
+                0x00000038       0x28 C:\Users\elian\AppData\Local\Temp\ccMUk9fM.o
+ .debug_aranges
+                0x00000060       0x40 C:\Users\elian\AppData\Local\Temp\cchmdZch.o
+
+.debug_rnglists
+                0x00000000       0x94
+ .debug_rnglists
+                0x00000000       0x44 C:\Users\elian\AppData\Local\Temp\ccVNENRk.o
+ .debug_rnglists
+                0x00000044       0x25 C:\Users\elian\AppData\Local\Temp\ccMUk9fM.o
+ .debug_rnglists
+                0x00000069       0x2b C:\Users\elian\AppData\Local\Temp\cchmdZch.o
+
+.debug_macro    0x00000000      0xf08
+ .debug_macro   0x00000000       0x33 C:\Users\elian\AppData\Local\Temp\ccVNENRk.o
+ .debug_macro   0x00000033      0xac0 C:\Users\elian\AppData\Local\Temp\ccVNENRk.o
+ .debug_macro   0x00000af3      0x34e C:\Users\elian\AppData\Local\Temp\ccVNENRk.o
+ .debug_macro   0x00000e41       0x64 C:\Users\elian\AppData\Local\Temp\ccVNENRk.o
+ .debug_macro   0x00000ea5       0x30 C:\Users\elian\AppData\Local\Temp\ccMUk9fM.o
+ .debug_macro   0x00000ed5       0x33 C:\Users\elian\AppData\Local\Temp\cchmdZch.o
+
+.debug_line     0x00000000      0x763
+ .debug_line    0x00000000      0x3b3 C:\Users\elian\AppData\Local\Temp\ccVNENRk.o
+ .debug_line    0x000003b3      0x188 C:\Users\elian\AppData\Local\Temp\ccMUk9fM.o
+ .debug_line    0x0000053b      0x228 C:\Users\elian\AppData\Local\Temp\cchmdZch.o
+
+.debug_str      0x00000000     0x3c27
+ .debug_str     0x00000000     0x3c27 C:\Users\elian\AppData\Local\Temp\ccVNENRk.o
+                               0x3ca5 (size before relaxing)
+ .debug_str     0x00003c27     0x39ae C:\Users\elian\AppData\Local\Temp\ccMUk9fM.o
+ .debug_str     0x00003c27     0x3b76 C:\Users\elian\AppData\Local\Temp\cchmdZch.o
+
+.comment        0x00000000       0x43
+ .comment       0x00000000       0x43 C:\Users\elian\AppData\Local\Temp\ccVNENRk.o
+                                 0x44 (size before relaxing)
+ .comment       0x00000043       0x44 C:\Users\elian\AppData\Local\Temp\ccMUk9fM.o
+ .comment       0x00000043       0x44 C:\Users\elian\AppData\Local\Temp\cchmdZch.o
+
+.ARM.attributes
+                0x00000000       0x34
+ .ARM.attributes
+                0x00000000       0x34 C:\Users\elian\AppData\Local\Temp\ccVNENRk.o
+ .ARM.attributes
+                0x00000034       0x34 C:\Users\elian\AppData\Local\Temp\ccMUk9fM.o
+ .ARM.attributes
+                0x00000068       0x34 C:\Users\elian\AppData\Local\Temp\cchmdZch.o
+ .ARM.attributes
+                0x0000009c       0x22 C:/ST/STM32CubeIDE_1.19.0/STM32CubeIDE/plugins/com.st.stm32cube.ide.mcu.externaltools.gnu-tools-for-stm32.13.3.rel1.win32_1.0.0.202411081344/tools/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v8-m.main/nofp\libgcc.a(_arm_addsubsf3.o)
+ .ARM.attributes
+                0x000000be       0x22 C:/ST/STM32CubeIDE_1.19.0/STM32CubeIDE/plugins/com.st.stm32cube.ide.mcu.externaltools.gnu-tools-for-stm32.13.3.rel1.win32_1.0.0.202411081344/tools/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v8-m.main/nofp\libgcc.a(_arm_muldivsf3.o)
+ .ARM.attributes
+                0x000000e0       0x22 C:/ST/STM32CubeIDE_1.19.0/STM32CubeIDE/plugins/com.st.stm32cube.ide.mcu.externaltools.gnu-tools-for-stm32.13.3.rel1.win32_1.0.0.202411081344/tools/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v8-m.main/nofp\libgcc.a(_arm_cmpsf2.o)
+ .ARM.attributes
+                0x00000102       0x22 C:/ST/STM32CubeIDE_1.19.0/STM32CubeIDE/plugins/com.st.stm32cube.ide.mcu.externaltools.gnu-tools-for-stm32.13.3.rel1.win32_1.0.0.202411081344/tools/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v8-m.main/nofp\libgcc.a(_arm_fixsfsi.o)
+ .ARM.attributes
+                0x00000124       0x22 C:/ST/STM32CubeIDE_1.19.0/STM32CubeIDE/plugins/com.st.stm32cube.ide.mcu.externaltools.gnu-tools-for-stm32.13.3.rel1.win32_1.0.0.202411081344/tools/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v8-m.main/nofp\libgcc.a(_arm_fixunssfsi.o)
+
+.debug_frame    0x00000000      0x2b0
+ .debug_frame   0x00000000       0x7c C:\Users\elian\AppData\Local\Temp\ccVNENRk.o
+ .debug_frame   0x0000007c       0x38 C:\Users\elian\AppData\Local\Temp\ccMUk9fM.o
+ .debug_frame   0x000000b4       0x68 C:\Users\elian\AppData\Local\Temp\cchmdZch.o
+ .debug_frame   0x0000011c       0x4c C:/ST/STM32CubeIDE_1.19.0/STM32CubeIDE/plugins/com.st.stm32cube.ide.mcu.externaltools.gnu-tools-for-stm32.13.3.rel1.win32_1.0.0.202411081344/tools/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v8-m.main/nofp\libgcc.a(_arm_addsubsf3.o)
+ .debug_frame   0x00000168       0x38 C:/ST/STM32CubeIDE_1.19.0/STM32CubeIDE/plugins/com.st.stm32cube.ide.mcu.externaltools.gnu-tools-for-stm32.13.3.rel1.win32_1.0.0.202411081344/tools/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v8-m.main/nofp\libgcc.a(_arm_muldivsf3.o)
+ .debug_frame   0x000001a0       0xc8 C:/ST/STM32CubeIDE_1.19.0/STM32CubeIDE/plugins/com.st.stm32cube.ide.mcu.externaltools.gnu-tools-for-stm32.13.3.rel1.win32_1.0.0.202411081344/tools/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v8-m.main/nofp\libgcc.a(_arm_cmpsf2.o)
+ .debug_frame   0x00000268       0x24 C:/ST/STM32CubeIDE_1.19.0/STM32CubeIDE/plugins/com.st.stm32cube.ide.mcu.externaltools.gnu-tools-for-stm32.13.3.rel1.win32_1.0.0.202411081344/tools/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v8-m.main/nofp\libgcc.a(_arm_fixsfsi.o)
+ .debug_frame   0x0000028c       0x24 C:/ST/STM32CubeIDE_1.19.0/STM32CubeIDE/plugins/com.st.stm32cube.ide.mcu.externaltools.gnu-tools-for-stm32.13.3.rel1.win32_1.0.0.202411081344/tools/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v8-m.main/nofp\libgcc.a(_arm_fixunssfsi.o)
