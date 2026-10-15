@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import re
+import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -89,6 +90,9 @@ class UsbDevice:
 
 
 def list_devices(root: Path = SYSFS) -> List[UsbDevice]:
+    if sys.platform == "win32":
+        from .winusb import present_devices
+        return devices_from_windows(present_devices(), windows_serial_ports())
     devices = []
     if not root.is_dir():
         return devices
@@ -109,6 +113,34 @@ def list_devices(root: Path = SYSFS) -> List[UsbDevice]:
             speed=_read(entry / "speed"), is_hub=_read(entry / "bDeviceClass") == "09",
             network=sorted(set(net)), serial_ports=sorted(set(ttys))))
     return devices
+
+
+_WIN_LOCATION_RE = re.compile(r"Port_#0*(\d+)\.Hub_#0*(\d+)")
+
+
+def devices_from_windows(devices, serial_ports: Sequence[Dict]) -> List[UsbDevice]:
+    """La lista de USB de Windows (winusb.present_devices) con el COM de cada adaptador serie.
+
+    `serial_ports`: [{"device": "COM5", "vid": 0x10C4, "pid": 0xEA60, "serial": "0001"}] (pyserial)."""
+    out = []
+    for n, d in enumerate(devices):
+        m = _WIN_LOCATION_RE.search(d.location or "")
+        path = f"{m.group(2)}-{m.group(1)}" if m else f"0-{n + 1}"
+        coms = [p["device"] for p in serial_ports
+                if p.get("vid") is not None and f"{p['vid']:04x}" == d.vid and f"{p['pid']:04x}" == d.pid
+                and (not d.serial or not p.get("serial") or p["serial"] == d.serial)]
+        out.append(UsbDevice(path=path, vid_pid=f"{d.vid}:{d.pid}", product=d.name, manufacturer=None,
+                             serial=d.serial, speed=None, is_hub=False, serial_ports=sorted(coms)))
+    return out
+
+
+def windows_serial_ports() -> List[Dict]:
+    try:
+        from serial.tools import list_ports
+    except ImportError:
+        return []
+    return [{"device": p.device, "vid": p.vid, "pid": p.pid, "serial": p.serial_number}
+            for p in list_ports.comports() if p.vid is not None]
 
 
 def mock_devices() -> List[UsbDevice]:
@@ -183,6 +215,8 @@ class PortPower:
         self._mock_off: Dict[str, float] = {}       # "1-2:3" -> hora en que se apagó
 
     def _run(self, args: Sequence[str], timeout: float = 20.0) -> str:
+        if sys.platform == "win32" and not self.mock:
+            raise PowerError("Cortar la energía de un puerto USB no está disponible en Windows.")
         try:
             out = run_capture([self.binary] + list(args), timeout=timeout)
         except FileNotFoundError:

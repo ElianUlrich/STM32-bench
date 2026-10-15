@@ -5,6 +5,7 @@ SOLO poweroff y reboot (ruta absoluta) sin argumentos.
 """
 from __future__ import annotations
 
+import ipaddress
 import os
 import platform
 import shutil
@@ -27,6 +28,7 @@ def _sbin(name: str) -> str:
     return f"/usr/sbin/{name}"
 
 
+TAILSCALE_NET = ipaddress.ip_network("100.64.0.0/10")
 POWEROFF_CMD = ["sudo", "-n", _sbin("poweroff")]
 REBOOT_CMD = ["sudo", "-n", _sbin("reboot")]
 
@@ -45,8 +47,66 @@ def interface_ipv4(name: str) -> Optional[str]:
         return None
 
 
+def host_ipv4() -> List[str]:
+    """IPv4 de esta computadora sin saber de qué interfaz (Windows y otros: getaddrinfo)."""
+    try:
+        infos = socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET)
+    except OSError:
+        return []
+    return sorted({i[4][0] for i in infos if not i[4][0].startswith("127.")})
+
+
+def pick_tailscale(addresses: List[str]) -> Optional[str]:
+    """La IP de Tailscale (rango 100.64.0.0/10) entre las de la computadora."""
+    for ip in addresses:
+        if ipaddress.ip_address(ip) in TAILSCALE_NET:
+            return ip
+    return None
+
+
+def _tailscale_cli_ip() -> Optional[str]:
+    """`tailscale ip -4` (Windows y macOS: la IP del adaptador no siempre aparece por getaddrinfo)."""
+    candidates = [shutil.which("tailscale")]
+    if sys.platform == "win32":
+        candidates.append(os.path.join(os.environ.get("ProgramFiles", r"C:\Program Files"), "Tailscale", "tailscale.exe"))
+    for exe in candidates:
+        if not exe or not os.path.isfile(exe):
+            continue
+        try:
+            out = subprocess.run([exe, "ip", "-4"], capture_output=True, text=True, timeout=5,
+                                 stdin=subprocess.DEVNULL,
+                                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).stdout
+        except (OSError, subprocess.SubprocessError):
+            continue
+        ip = pick_tailscale([line.strip() for line in out.splitlines() if line.strip().count(".") == 3])
+        if ip:
+            return ip
+    return None
+
+
+def tailscale_ipv4(interface: str) -> Optional[str]:
+    """IP de Tailscale: la de la interfaz (Linux) o la que informa Tailscale (Windows, macOS)."""
+    if sys.platform.startswith("linux"):
+        return interface_ipv4(interface)
+    return _tailscale_cli_ip() or pick_tailscale(host_ipv4())
+
+
+def os_name() -> str:
+    """"Windows 11 (compilación 26200)": platform.release() dice "10" también en Windows 11."""
+    if sys.platform == "win32":
+        build = sys.getwindowsversion().build
+        return f"Windows {'11' if build >= 22000 else platform.release()} (compilación {build})"
+    return platform.platform(terse=True)
+
+
 def list_ipv4() -> List[Dict[str, str]]:
     """Todas las interfaces con IPv4 (excepto loopback)."""
+    if not sys.platform.startswith("linux"):
+        ips = host_ipv4()
+        ts = _tailscale_cli_ip()
+        if ts and ts not in ips:
+            ips.append(ts)
+        return [{"interface": "Tailscale" if pick_tailscale([ip]) else "red", "ip": ip} for ip in ips]
     addresses = []
     try:
         names = [name for _, name in socket.if_nameindex()]
@@ -69,11 +129,33 @@ def _read_first_line(path: Path) -> Optional[str]:
 
 
 def uptime_s() -> Optional[float]:
+    if sys.platform == "win32":
+        import ctypes
+        ctypes.windll.kernel32.GetTickCount64.restype = ctypes.c_ulonglong
+        return ctypes.windll.kernel32.GetTickCount64() / 1000.0
     line = _read_first_line(Path("/proc/uptime"))
     return float(line.split()[0]) if line else None
 
 
+def _windows_memory() -> Optional[Dict[str, int]]:
+    import ctypes
+
+    class MEMORYSTATUSEX(ctypes.Structure):
+        _fields_ = [("dwLength", ctypes.c_ulong), ("dwMemoryLoad", ctypes.c_ulong),
+                    ("ullTotalPhys", ctypes.c_ulonglong), ("ullAvailPhys", ctypes.c_ulonglong),
+                    ("ullTotalPageFile", ctypes.c_ulonglong), ("ullAvailPageFile", ctypes.c_ulonglong),
+                    ("ullTotalVirtual", ctypes.c_ulonglong), ("ullAvailVirtual", ctypes.c_ulonglong),
+                    ("ullAvailExtendedVirtual", ctypes.c_ulonglong)]
+    st = MEMORYSTATUSEX()
+    st.dwLength = ctypes.sizeof(st)
+    if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(st)):
+        return None
+    return {"total": st.ullTotalPhys, "used": st.ullTotalPhys - st.ullAvailPhys, "available": st.ullAvailPhys}
+
+
 def memory() -> Optional[Dict[str, int]]:
+    if sys.platform == "win32":
+        return _windows_memory()
     try:
         info = {}
         for line in Path("/proc/meminfo").read_text().splitlines():
@@ -130,18 +212,19 @@ def collect(projects_dir: Path, tailscale_iface: str, mock: bool) -> Dict[str, o
         load = list(os.getloadavg())
     except (OSError, AttributeError):
         load = None
+    linux = sys.platform.startswith("linux")
     return {
         "hostname": socket.gethostname(),
-        "kernel": platform.release(),
+        "kernel": platform.release() if linux else os_name(),
         "addresses": list_ipv4(),
-        "tailscale_ip": interface_ipv4(tailscale_iface),
+        "tailscale_ip": tailscale_ipv4(tailscale_iface),
         "uptime_s": uptime_s(),
         "load": load,
         "memory": memory(),
-        "temperatures": temperatures(),
-        "disk_root": disk(Path("/")),
+        "temperatures": temperatures() if linux else [],
+        "disk_root": disk(Path("/") if linux else Path(os.environ.get("SystemDrive", "C:") + "\\")),
         "disk_projects": disk(projects_dir),
-        "mac": mac_info(),
+        "mac": mac_info() if linux else None,
     }
 
 

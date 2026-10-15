@@ -10,6 +10,7 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 from ..events import EventBus
 from ..procs import StreamingProcess
 from ..relay import TcpRelay
+from .runner import failure_hint
 
 
 class GdbServerError(RuntimeError):
@@ -180,7 +181,11 @@ class GdbServer:
                 break
             await asyncio.sleep(0.1)
         if proc.poll() is not None:
-            await asyncio.sleep(0.2)   # deja que _watch_process registre el error
+            # Que _watch_process termine de leer la salida y registre el motivo.
+            try:
+                await asyncio.wait_for(asyncio.shield(self._watch), 5)
+            except asyncio.TimeoutError:
+                pass
             await self._close_relays()
             raise GdbServerError(self.last_error or "OpenOCD terminó al iniciar")
         return self.status()   # sigue arrancando; el estado llegará por SSE
@@ -202,6 +207,9 @@ class GdbServer:
             errors = [l for l in tail if "Error" in l or "error" in l]
             self.state = "error"
             self.last_error = f"OpenOCD terminó (código {code}). " + (errors[-1] if errors else (tail[-1] if tail else ""))
+            hint = failure_hint(" ".join(errors))
+            if hint:
+                self.last_error += f". {hint}"
         self._publish()
 
     async def stop(self) -> Dict[str, Any]:

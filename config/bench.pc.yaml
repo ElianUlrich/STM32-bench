@@ -1,0 +1,76 @@
+# Configuración del banco en MODO PC: la app corre en tu computadora (Windows) y
+# usa sus propios USB, sin BeagleBoard. La arranca iniciar_pc.bat.
+#
+# "auto" busca la herramienta en STM32CubeIDE, el IDE de Arduino, xPack o el PATH
+# (ver app/tools.py; "python -m app.tools" muestra qué encuentra). Se puede poner
+# una ruta concreta en lugar de "auto".
+
+openocd:
+  binary: auto
+  scripts_dir: auto
+  default_interface: stlink-dap
+  timeout_s: 180
+
+# Sin "binary" se usa "python -m esptool" del entorno de la app (iniciar_pc.bat lo instala).
+esptool:
+  timeout_s: 300
+
+avrdude:
+  binary: auto
+  config: auto            # el avrdude del IDE de Arduino necesita su avrdude.conf
+  timeout_s: 180
+
+dfu_util:
+  # En Windows el STM32 en modo DFU necesita el driver WinUSB (con Zadig, ver README).
+  binary: auto
+  timeout_s: 300
+
+interfaces:
+  stlink:
+    cfg: interface/stlink.cfg
+    transport: hla_swd
+    description: "ST-Link en modo HLA (compatible con V2 viejos; solo AP0)"
+  stlink-dap:
+    cfg: interface/stlink-dap.cfg
+    transport: dapdirect_swd
+    description: "ST-Link en modo dapdirect (V2 con firmware >= J24, V2-1, V3)"
+
+gdb:
+  port: 3333
+  # localhost  -> sólo esta PC (STM32CubeIDE o VS Code en la misma computadora)
+  # tailscale  -> también otras computadoras de tu red de Tailscale
+  bind: localhost
+  tailscale_interface: tailscale0
+
+debugger:
+  gdb_binary: auto
+
+rtt:
+  port: 9090
+
+uploads:
+  max_size_mb: 16
+
+scan:
+  max_depth: 5
+
+serial:
+  default_baud: 115200
+  bauds: [9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600, 1000000, 2000000]
+
+history:
+  max_entries: 200
+
+security:
+  allowed_networks:
+    - 127.0.0.0/8
+    - ::1/128
+    - 100.64.0.0/10
+    - fd7a:115c:a1e0::/48
+  session_hours: 12
+
+# En una PC no hay GPIO: el STM32 se pone en modo DFU a mano (BOOT0 + reset) o con
+# un comando por puerto serie.
+boot_control:
+  backend: manual
+  timeout_s: 60

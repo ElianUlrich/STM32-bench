@@ -42,6 +42,20 @@ def failure_reason(output: str, limit: int = 200) -> Optional[str]:
     return None
 
 
+_HINTS = [
+    (re.compile(r"open failed|unable to find a matching|LIBUSB_ERROR_(ACCESS|NOT_FOUND|NO_DEVICE)", re.I),
+     "No se pudo abrir el ST-Link: ¿está conectado (y con su driver)?"),
+]
+
+
+def failure_hint(reason: str) -> Optional[str]:
+    """Qué hacer ante un error conocido de una herramienta, o None."""
+    for pattern, hint in _HINTS:
+        if pattern.search(reason or ""):
+            return hint
+    return None
+
+
 class BusyError(RuntimeError):
     """Ya hay un trabajo de programación en curso."""
 
@@ -189,8 +203,9 @@ class JobContext:
         result = ProcessResult(returncode=proc.poll() or 0, output=proc.output())
         if check and result.returncode != 0:
             reason = failure_reason(result.output)
-            raise JobFailed(f"{source} falló: {reason}" if reason
-                            else f"{source} terminó con código {result.returncode}")
+            hint = failure_hint(reason or "")
+            raise JobFailed((f"{source} falló: {reason}" if reason
+                             else f"{source} terminó con código {result.returncode}") + (f". {hint}" if hint else ""))
         return result
 
 

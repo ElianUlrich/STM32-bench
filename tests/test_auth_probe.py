@@ -1,6 +1,6 @@
 """Hash de contraseñas, límite de intentos y detección de ST-Link por sysfs."""
 from app.auth import LoginLimiter, check_credentials, hash_password, verify_password
-from app.probe import list_stlinks, normalize_serial
+from app.probe import normalize_serial, stlinks_from_sysfs
 from app.settings import client_allowed, parse_bench_config
 
 
@@ -100,7 +100,7 @@ def test_list_stlinks_from_sysfs(tmp_path):
     devfs = tmp_path / "dev"
     (devfs / "001").mkdir(parents=True)
     (devfs / "001" / "004").write_text("")
-    probes = list_stlinks(sysfs, devfs)
+    probes = stlinks_from_sysfs(sysfs, devfs)
     assert [(p.pid, p.model) for p in probes] == [("374b", "ST-LINK/V2-1"), ("3748", "ST-LINK/V2")]
     assert probes[0].serial == "066DFF485550755187121832" and not probes[0].raw_serial_was_binary
     assert probes[1].serial == "AABC6E065075FF551742193F" and probes[1].raw_serial_was_binary

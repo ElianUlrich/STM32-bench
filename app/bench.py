@@ -121,7 +121,8 @@ class Bench:
             # esptool se instala en el mismo entorno virtual que la app.
             self.esptool_cmd = ((self.cfg.esptool_binary,) if self.cfg.esptool_binary
                                 else (sys.executable, "-m", "esptool"))
-            self.avrdude_cmd = (self.cfg.avrdude_binary,)
+            self.avrdude_cmd = (self.cfg.avrdude_binary,) + (("-C", self.cfg.avrdude_config)
+                                                              if self.cfg.avrdude_config else ())
             self.gdb_client_cmd = (self.cfg.debugger_gdb_binary,)
             self.env_extra = {}
             scripts = self.cfg.openocd_scripts()
@@ -663,7 +664,7 @@ class Bench:
     def gdb_bind_ip(self) -> Tuple[str, Optional[str]]:
         """(IP donde escucha OpenOCD, IP que se muestra para conectarse)."""
         bind = self.cfg.gdb_bind
-        ts_ip = "100.101.102.103" if self.settings.mock else system.interface_ipv4(self.cfg.tailscale_interface)
+        ts_ip = "100.101.102.103" if self.settings.mock else system.tailscale_ipv4(self.cfg.tailscale_interface)
         if bind == "tailscale":
             if self.settings.mock:
                 return "127.0.0.1", ts_ip
@@ -892,6 +893,7 @@ class Bench:
         bc = self.cfg.boot_control
         return {
             "mock": self.settings.mock,
+            "host": self.settings.host,
             "config_errors": self.config_errors,
             "chips": [c.to_public() for c in self.chips],
             "interfaces": [{"id": i.id, "cfg": i.cfg, "transport": i.transport, "description": i.description}

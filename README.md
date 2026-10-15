@@ -26,6 +26,9 @@ de programación y depuración remota de microcontroladores **STM32**, **ESP32/E
   soporte, vía `uhubctl`) para reiniciar en frío una placa o un ST-Link colgado;
 - ver el estado de la placa y **apagarla o reiniciarla** con seguridad.
 
+También corre **en tu PC con Windows**, sin BeagleBoard, usando los USB de la computadora (ver
+[Modo PC](#modo-pc-el-banco-en-tu-computadora-sin-beagleboard)).
+
 ```
  Tu PC (navegador, GDB) ──Tailscale──► BeagleBoard-xM (app web :8080, OpenOCD GDB :3333)
                                           │ USB host
@@ -822,6 +825,48 @@ banco ya funcione y con una copia de la SD.
 Si `overlayroot` no está disponible para tu versión de Debian, la alternativa es montar la raíz `ro`
 en `fstab` y poner `/var/log`, `/tmp` y `/var/tmp` en `tmpfs`.
 
+## Modo PC: el banco en tu computadora, sin BeagleBoard
+
+La misma web puede correr en una PC con Windows y usar los USB de esa computadora: sirve para
+trabajar en tu mesa, o cuando no tenés la BeagleBoard a mano. Todo lo de la interfaz funciona igual
+(flashear, Depurar, Gráficos, Micro, monitor serie, RTT).
+
+**Qué hace falta** (casi siempre ya está instalado):
+
+| Para | Herramienta | De dónde la toma |
+|---|---|---|
+| STM32 por ST-Link, Depurar, Gráficos | OpenOCD de ST y `arm-none-eabi-gdb` | [STM32CubeIDE](https://www.st.com/stm32cubeide) (también instala el driver del ST-Link) |
+| Arduino | avrdude (con su `avrdude.conf`) | IDE de Arduino 2.x |
+| STM32 por USB DFU | dfu-util | IDE de Arduino 2.x o el PATH |
+| ESP32 | esptool 4.x | lo instala `iniciar_pc.bat` |
+
+Además, Python 3.9 o más nuevo. Si una herramienta está en otro lado, se pone su ruta en
+`config/bench.pc.yaml` en lugar de `auto`.
+
+**Arrancarlo:** doble clic en `iniciar_pc.bat`. La primera vez crea el entorno de Python y pide un
+usuario y una contraseña para la web. La contraseña no se guarda: sólo su hash, en
+`%LOCALAPPDATA%\BancoRemoto\banco.env`, donde quedan también los proyectos y el historial. Después
+muestra qué herramientas encontró y abre `http://127.0.0.1:8080`.
+
+```bat
+iniciar_pc.bat               :: sólo esta PC
+iniciar_pc.bat --tailscale   :: también desde otras PC de tu Tailscale (escucha en la IP de Tailscale)
+iniciar_pc.bat --password    :: cambiar usuario o contraseña
+iniciar_pc.bat --check       :: sólo ver qué herramientas encuentra
+```
+
+Diferencias con la BeagleBoard:
+
+- No hay **Apagar/Reiniciar** (es tu computadora) ni corte de energía por puerto USB.
+- El modo DFU del STM32 se activa a mano (BOOT0 + reset), porque no hay GPIO.
+- El servidor GDB escucha en `127.0.0.1:3333`, así que STM32CubeIDE o VS Code de la misma PC se conectan
+  directo. Con `gdb.bind: tailscale` en `bench.pc.yaml`, otras PC de tu red también pueden.
+- **DFU en Windows:** dfu-util necesita el driver **WinUSB** para el STM32 en modo DFU (`0483:df11`).
+  Se instala con [Zadig](https://zadig.akeo.ie/): conectá el STM32 en DFU, elegí "STM32 BOOTLOADER" y
+  "WinUSB". Ojo: STM32CubeProgrammer usa otro driver para el mismo dispositivo.
+- **Adaptadores USB-serie** (CP210x, CH340, CH343): Windows 10/11 suele instalar el driver solo; si no,
+  bajalo del fabricante. En el monitor serie aparecen como `COM3`, `COM4`...
+
 ## Desarrollo en la PC (modo mock)
 
 Con `BENCH_MOCK=1` la app **simula OpenOCD, dfu-util, los ST-Link, el dispositivo DFU, el flujo de
@@ -895,6 +940,8 @@ app/
   files.py           validación, subida, escaneo, borrado
   convert.py         .elf/.hex -> .bin (DFU), .bin -> .hex
   livevars.py        gráficos: variables del .elf (DWARF) y muestreo por el puerto TCL de OpenOCD
+  tools.py           modo PC: dónde están OpenOCD, GDB, dfu-util y avrdude (CubeIDE, Arduino, xPack, PATH)
+  winusb.py          modo PC: dispositivos USB conectados en Windows (SetupAPI)
   relay.py           reenvío TCP: publica en la red el puerto GDB y el RTT de OpenOCD (que escucha en 127.0.0.1)
   readback.py        leer el micro: análisis de la flash, coincidencias con archivos, lecturas guardadas
   reading.py         leer el micro: trabajos por SWD/DFU/esptool/avrdude y copia de respaldo
@@ -1011,6 +1058,12 @@ Verificalo en la BeagleBoard:
 26. **Reenvío de puertos** (`relay.py`): un GDB de la PC (arm-none-eabi-gdb, VS Code, CubeIDE) y el
     canal RTT por Tailscale a través del reenvío, y que OpenOCD ya no aparezca escuchando en la IP de
     Tailscale (`ss -ltnp`).
+27. **Modo PC con hardware**: se probó en Windows 11 sin placas conectadas. Se verificaron la
+    detección de herramientas (OpenOCD 0.12 de ST de CubeIDE 1.19, GDB, avrdude 6.3 y dfu-util 0.11 de
+    Arduino, esptool 4.12), la revisión de los `.cfg`, la lista de USB por SetupAPI, los datos del
+    sistema y que OpenOCD informe bien "no hay ST-Link". Falta probar con un ST-Link conectado
+    (grabar, Depurar, Gráficos), un Arduino (avrdude con `-C`), un ESP32 en `COMx` y el STM32 en DFU
+    con WinUSB.
 
 ## Licencia
 

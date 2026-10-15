@@ -566,6 +566,9 @@ async def _power(kind: str, body: PowerBody, request: Request) -> Dict[str, Any]
     if not body.confirm:
         raise HTTPException(status_code=400, detail="Falta la confirmación")
     bench = get_bench(request)
+    if bench.settings.host == "pc":
+        raise HTTPException(status_code=400, detail="En modo PC no se apaga ni se reinicia la computadora "
+                                                    "desde la web")
     if bench.runner.busy:
         raise HTTPException(status_code=409, detail="Hay una operación en curso; esperá o cancelala antes")
     bench.shutdown()

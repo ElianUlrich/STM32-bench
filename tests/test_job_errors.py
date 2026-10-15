@@ -50,3 +50,10 @@ def test_esp_without_board_says_why(client):
     done = wait_job(client)
     assert done["state"] == "error"
     assert done["message"].startswith("esptool falló: A fatal error occurred: Failed to connect")
+
+
+def test_failure_hints():
+    from app.programmers.runner import failure_hint
+    assert "ST-Link" in failure_hint("open failed")
+    assert "ST-Link" in failure_hint("unable to find a matching ST-Link")
+    assert failure_hint("Verify Failed") is None

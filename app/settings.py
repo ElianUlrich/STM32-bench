@@ -20,6 +20,8 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import yaml
 
+from . import tools
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 # Identificadores (interfaces, chips, backends): minúsculas, números, - y _.
@@ -86,6 +88,7 @@ class BenchConfig:
     esptool_binary: Optional[str] = None      # None = "python -m esptool" del entorno de la app
     esptool_timeout_s: float = 300.0
     avrdude_binary: str = "avrdude"
+    avrdude_config: Optional[str] = None       # -C avrdude.conf (el avrdude del IDE de Arduino lo necesita)
     avrdude_timeout_s: float = 180.0
     # Depurador de la web: GDB para ARM compilado con scripts/build_gdb.sh.
     debugger_gdb_binary: str = "/usr/local/bin/arm-none-eabi-gdb"
@@ -229,17 +232,19 @@ def parse_bench_config(data: Dict[str, Any]) -> BenchConfig:
         raise ConfigError("boot_control: el backend serial_command necesita 'port' y 'command'")
 
     return BenchConfig(
-        openocd_binary=str(_get(openocd, "binary", "openocd")),
-        openocd_scripts_dir=_get(openocd, "scripts_dir"),
+        openocd_binary=str(tools.resolve(_get(openocd, "binary", "openocd"), "openocd", fallback="openocd")),
+        openocd_scripts_dir=tools.resolve(_get(openocd, "scripts_dir"), "openocd", "scripts_dir"),
         openocd_default_interface=default_iface,
         openocd_timeout_s=float(_get(openocd, "timeout_s", 180)),
-        dfu_util_binary=str(_get(dfu, "binary", "dfu-util")),
+        dfu_util_binary=str(tools.resolve(_get(dfu, "binary", "dfu-util"), "dfu-util", fallback="dfu-util")),
         dfu_util_timeout_s=float(_get(dfu, "timeout_s", 300)),
         esptool_binary=_get(esptool, "binary"),
         esptool_timeout_s=float(_get(esptool, "timeout_s", 300)),
-        avrdude_binary=str(_get(avrdude, "binary", "avrdude")),
+        avrdude_binary=str(tools.resolve(_get(avrdude, "binary", "avrdude"), "avrdude", fallback="avrdude")),
+        avrdude_config=tools.resolve(_get(avrdude, "config"), "avrdude", "config"),
         avrdude_timeout_s=float(_get(avrdude, "timeout_s", 180)),
-        debugger_gdb_binary=str(_get(debugger, "gdb_binary", "/usr/local/bin/arm-none-eabi-gdb")),
+        debugger_gdb_binary=str(tools.resolve(_get(debugger, "gdb_binary", "/usr/local/bin/arm-none-eabi-gdb"), "gdb",
+                                              fallback="arm-none-eabi-gdb")),
         rtt_port=_as_int(_get(_get(data, "rtt", {}) or {}, "port", 9090), "rtt.port", 1024, 65535),
         interfaces=interfaces,
         gdb_port=_as_int(_get(gdb, "port", 3333), "gdb.port", 1024, 65535),
@@ -283,6 +288,10 @@ class Settings:
     cookie_secure: bool
     # Contraseña generada al vuelo en modo mock cuando no hay hash configurado.
     generated_password: Optional[str] = None
+    # "board": la BeagleBoard (se apaga desde la web); "pc": una computadora con sus propios USB.
+    host: str = "board"
+    # bench.yaml alternativo (p. ej. config/bench.pc.yaml en modo PC).
+    bench_file_override: Optional[Path] = None
 
     @property
     def chips_file(self) -> Path:
@@ -290,7 +299,7 @@ class Settings:
 
     @property
     def bench_file(self) -> Path:
-        return self.config_dir / "bench.yaml"
+        return self.bench_file_override or self.config_dir / "bench.yaml"
 
     @property
     def uploads_dir(self) -> Path:
@@ -327,6 +336,12 @@ def settings_from_env() -> Settings:
         load_env_file(Path(env_file))
 
     mock = _env_bool("BENCH_MOCK")
+    # BENCH_MODE (no BENCH_HOST, que es la dirección donde escucha el servidor web).
+    host = os.environ.get("BENCH_MODE", "").strip().lower() or ("board" if sys.platform.startswith("linux") else "pc")
+    if host not in ("board", "pc"):
+        raise ConfigError("BENCH_MODE: 'board' (BeagleBoard) o 'pc'")
+    if mock and not os.environ.get("BENCH_MODE"):
+        host = "board"                     # el simulador imita la BeagleBoard
     username = os.environ.get("BENCH_USER", "").strip() or ("dev" if mock else "")
     password_hash = os.environ.get("BENCH_PASSWORD_HASH", "").strip() or None
     secret_key = os.environ.get("BENCH_SECRET_KEY", "").strip()
@@ -366,6 +381,8 @@ def settings_from_env() -> Settings:
         state_dir=Path(os.environ.get("BENCH_STATE_DIR") or state_default),
         cookie_secure=_env_bool("BENCH_COOKIE_SECURE"),
         generated_password=generated_password,
+        host=host,
+        bench_file_override=Path(os.environ["BENCH_BENCH_FILE"]) if os.environ.get("BENCH_BENCH_FILE") else None,
     )
 
 

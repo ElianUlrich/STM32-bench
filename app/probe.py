@@ -1,14 +1,17 @@
-"""Detección de programadores ST-Link (por sysfs) y dispositivos DFU (dfu-util -l)."""
+"""Detección de programadores ST-Link (por sysfs en Linux, SetupAPI en Windows) y
+dispositivos DFU (dfu-util -l)."""
 from __future__ import annotations
 
 import os
 import string
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from .procs import run_capture
 from .programmers import dfu as dfu_cmd
+from .winusb import WinUsbDevice, present_devices
 
 ST_VID = "0483"
 # PIDs de ST-Link conocidos -> nombre legible.
@@ -38,6 +41,8 @@ class StLink:
     devnum: int
     accessible: bool
     raw_serial_was_binary: bool = False
+    # Qué hacer si no es accesible (permisos en Linux, driver en Windows).
+    access_hint: str = "Sin permiso sobre el USB: revisá las reglas udev (ver README)."
 
     def to_public(self) -> Dict[str, object]:
         return {
@@ -49,6 +54,7 @@ class StLink:
             "devnum": self.devnum,
             "accessible": self.accessible,
             "serial_was_binary": self.raw_serial_was_binary,
+            "access_hint": None if self.accessible else self.access_hint,
         }
 
 
@@ -78,9 +84,15 @@ def _read(path: Path) -> Optional[bytes]:
         return None
 
 
-def list_stlinks(sysfs_root: Path = Path("/sys/bus/usb/devices"),
-                 devfs_root: Path = Path("/dev/bus/usb")) -> List[StLink]:
-    """Lista los ST-Link conectados leyendo sysfs (no requiere lsusb ni root)."""
+def list_stlinks() -> List[StLink]:
+    """Los ST-Link conectados: sysfs en Linux (no requiere lsusb ni root), SetupAPI en Windows."""
+    if sys.platform == "win32":
+        return stlinks_from_windows(present_devices())
+    return stlinks_from_sysfs()
+
+
+def stlinks_from_sysfs(sysfs_root: Path = Path("/sys/bus/usb/devices"),
+                       devfs_root: Path = Path("/dev/bus/usb")) -> List[StLink]:
     found: List[StLink] = []
     if not sysfs_root.is_dir():
         return found
@@ -106,6 +118,21 @@ def list_stlinks(sysfs_root: Path = Path("/sys/bus/usb/devices"),
         found.append(StLink(serial=serial, pid=pid_s, model=STLINK_PIDS[pid_s], product=product,
                             bus=bus, devnum=devnum, accessible=accessible,
                             raw_serial_was_binary=was_binary))
+    return found
+
+
+WINDOWS_DRIVER_HINT = ("Falta el driver del ST-Link en Windows: instalá STM32CubeProgrammer o STM32CubeIDE "
+                       "(traen el driver STSW-LINK009) y volvé a conectarlo.")
+
+
+def stlinks_from_windows(devices: Sequence[WinUsbDevice]) -> List[StLink]:
+    """ST-Link de la lista de USB de Windows. Sin driver no se puede usar (OpenOCD no lo abre)."""
+    found = []
+    for n, d in enumerate(devices):
+        if d.vid != ST_VID or d.pid not in STLINK_PIDS:
+            continue
+        found.append(StLink(serial=d.serial or "", pid=d.pid, model=STLINK_PIDS[d.pid], product=d.name or "",
+                            bus=0, devnum=n, accessible=d.has_driver, access_hint=WINDOWS_DRIVER_HINT))
     return found
 
 

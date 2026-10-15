@@ -436,15 +436,15 @@ function renderProbes() {
   if (!state.stlinks.length) options.push(el("option", { value: "" }, "No se detectó ningún ST-Link"));
   else if (state.stlinks.length > 1) options.push(el("option", { value: "" }, "Elegí un ST-Link…"));
   for (const p of state.stlinks) {
-    options.push(el("option", { value: p.serial }, `${p.model} — ${p.serial}${p.accessible ? "" : "  ⚠ sin permisos"}`));
+    options.push(el("option", { value: p.serial }, `${p.model} — ${p.serial || "sin número de serie"}${p.accessible ? "" : (p.access_hint ? "  ⚠ sin driver" : "  ⚠ sin permisos")}`));
   }
   sel.replaceChildren(...options);
   if (state.stlinks.some((p) => p.serial === previous)) sel.value = previous;
   else if (state.stlinks.length === 1) sel.value = state.stlinks[0].serial;
   const chosen = state.stlinks.find((p) => p.serial === sel.value);
   let note = "";
-  if (!state.stlinks.length) note = "Conectá el ST-Link a un USB de la BeagleBoard.";
-  else if (chosen && !chosen.accessible) note = "Sin permiso sobre el USB: revisá las reglas udev (ver README).";
+  if (!state.stlinks.length) note = `Conectá el ST-Link a un USB de ${hostWord()}.`;
+  else if (chosen && !chosen.accessible) note = chosen.access_hint || "Sin permiso sobre el USB: revisá las reglas udev (ver README).";
   else if (chosen && chosen.serial_was_binary) note = "ST-Link/V2 con número de serie binario: se usa su forma hexadecimal.";
   $("probe-note").textContent = note;
 
@@ -460,7 +460,7 @@ function renderProbes() {
   psel.replaceChildren(...popts);
   if (ports.some((p) => p.device === pprev)) psel.value = pprev;
   else if (ports.length === 1) psel.value = ports[0].device;
-  $("port-note").textContent = ports.length ? "" : "Conectá la placa (ESP32 / Arduino) por USB a la BeagleBoard.";
+  $("port-note").textContent = ports.length ? "" : `Conectá la placa (ESP32 / Arduino) por USB a ${hostWord()}.`;
 
   // DFU
   const dsel = $("sel-dfu");
@@ -494,7 +494,7 @@ function renderBoardSummary() {
     prog = p ? `${p.model} · …${p.serial.slice(-6)}` : "";
     if (!state.stlinks.length) warn = "No se detectó ningún ST-Link";
     else if (!p) warn = "Elegí un ST-Link";
-    else if (!p.accessible) warn = "ST-Link sin permisos (reglas udev)";
+    else if (!p.accessible) warn = p.access_hint ? "ST-Link sin driver" : "ST-Link sin permisos (reglas udev)";
   } else if (m === "dfu") {
     prog = $("sel-dfu").value ? `DFU ${$("sel-dfu").value}` : "DFU automático";
   } else if (usesSerialPort(chip, m)) {
@@ -1859,24 +1859,25 @@ async function loadSystem() {
       ? s.temperatures.map((t) => `${t.celsius.toFixed(1)} °C (${t.name})`).join(", ") : "No disponible";
     const ips = s.addresses && s.addresses.length
       ? s.addresses.map((a) => `${a.interface}: ${a.ip}`).join("\n") : "—";
-    $("sys-grid").replaceChildren(
-      stat("Equipo", `${s.hostname} · kernel ${s.kernel}`),
+    const pc = isPc();
+    $("sys-grid").replaceChildren(...[
+      stat("Equipo", pc ? `${s.hostname} · ${s.kernel}` : `${s.hostname} · kernel ${s.kernel}`),
       stat("IP Tailscale", s.tailscale_ip || "No detectada"),
       stat("Direcciones", ips),
       stat("Encendida hace", fmtUptime(s.uptime_s)),
-      stat("Temperatura", temps),
-      stat("Carga (1/5/15 min)", s.load ? s.load.map((x) => x.toFixed(2)).join(" / ") : "—"),
+      pc ? null : stat("Temperatura", temps),
+      pc ? null : stat("Carga (1/5/15 min)", s.load ? s.load.map((x) => x.toFixed(2)).join(" / ") : "—"),
       stat("RAM", mem ? `${fmtSize(mem.used)} de ${fmtSize(mem.total)}` : "—", mem ? mem.used / mem.total : null),
-      stat("Disco (/)", root ? `${fmtSize(root.used)} de ${fmtSize(root.total)}` : "—", root ? root.used / root.total : null),
+      stat(pc ? "Disco del sistema" : "Disco (/)", root ? `${fmtSize(root.used)} de ${fmtSize(root.total)}` : "—", root ? root.used / root.total : null),
       stat("Disco (proyectos)", proj ? `${fmtSize(proj.free)} libres` : "—", proj ? proj.used / proj.total : null),
       stat("OpenOCD", el("code", {}, s.versions.openocd || "no detectado")),
       stat("dfu-util", el("code", {}, s.versions.dfu_util || "no detectado")),
       stat("esptool", el("code", {}, s.versions.esptool || "no detectado")),
       stat("avrdude", el("code", {}, s.versions.avrdude || "no detectado")),
-      stat("MAC (" + (s.mac ? s.mac.interface : "eth0") + ")", s.mac
+      pc ? null : stat("MAC (" + (s.mac ? s.mac.interface : "eth0") + ")", s.mac
         ? `${s.mac.address} · ${s.mac.fixed ? "fija" : "cambia en cada arranque (sudo bash scripts/fijar_mac.sh)"}`
         : "—"),
-    );
+    ].filter(Boolean));
     $("pill-host").querySelector("span").textContent = `${s.hostname}${s.tailscale_ip ? " · " + s.tailscale_ip : ""}`;
   } catch (e) {
     /* se reintenta en el próximo ciclo */
@@ -2357,6 +2358,22 @@ function bindSplitter() {
 
 // ------------------------------------------------------------------ arranque
 
+// Modo PC: la app corre en una computadora (sin BeagleBoard): no se apaga desde la web.
+function isPc() {
+  return !!(state.config && state.config.host === "pc");
+}
+
+function hostWord() {
+  return isPc() ? "esta computadora" : "la BeagleBoard";
+}
+
+function applyHostKind(host) {
+  const pc = host === "pc";
+  document.body.classList.toggle("host-pc", pc);
+  document.querySelector(".power").hidden = pc;
+  $("usb-note-where").textContent = pc ? "esta computadora" : "la placa";
+}
+
 async function init() {
   bindUI();
   bindGraphs();
@@ -2368,6 +2385,7 @@ async function init() {
   }
   state.config = await api("GET", "/api/config");
   renderConfig();
+  applyHostKind(state.config.host);
   setBoardCollapsed(prefs.get("boardCollapsed", false));
   setSideCollapsed(prefs.get("sideCollapsed", false));
   connectEvents();
