@@ -1,0 +1,3 @@
+# Para armar el instalador (InstaladorBancoRemoto.exe). No hacen falta para la app.
+paramiko>=3.4
+pyinstaller>=6.6

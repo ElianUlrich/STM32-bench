@@ -1,0 +1,63 @@
+# OpenOCD (fork de ST) y GDB precompilados para las placas, así el instalador no
+# tiene que compilarlos en la placa (horas en una BeagleBoard-xM).
+#
+#   armhf: Ubuntu 16.04 de 32 bits (glibc 2.23): sirve para la xM con la imagen
+#          vieja de rcn-ee y para sistemas más nuevos (BeagleBone, Raspberry Pi OS 32 bits).
+#   arm64: Debian 11 (glibc 2.31): Raspberry Pi 3/4/5 con sistema de 64 bits, Beagle de 64 bits.
+#
+# Se publican en un release al subir una etiqueta binarios-vN:
+#     git tag binarios-v1 && git push origin binarios-v1
+# scripts/binarios.sh los baja de ahí (verificando el SHA-256).
+name: Binarios precompilados
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["binarios-v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  compilar:
+    name: ${{ matrix.herramienta }} ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # armhf se emula con QEMU (los runners ARM de 64 bits no ejecutan código de 32 bits).
+          - { herramienta: openocd, arch: armhf, runner: ubuntu-24.04, plataforma: linux/arm/v7, imagen: "ubuntu:16.04" }
+          - { herramienta: gdb, arch: armhf, runner: ubuntu-24.04, plataforma: linux/arm/v7, imagen: "ubuntu:16.04" }
+          - { herramienta: openocd, arch: arm64, runner: ubuntu-24.04-arm, plataforma: linux/arm64, imagen: "debian:11" }
+          - { herramienta: gdb, arch: arm64, runner: ubuntu-24.04-arm, plataforma: linux/arm64, imagen: "debian:11" }
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+        if: matrix.arch == 'armhf'
+      - name: Compilar en ${{ matrix.imagen }} (${{ matrix.plataforma }})
+        run: >
+          docker run --rm --platform ${{ matrix.plataforma }} -v "$PWD:/w" -w /w ${{ matrix.imagen }}
+          bash scripts/ci_binarios.sh ${{ matrix.herramienta }} ${{ matrix.arch }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.herramienta }}-${{ matrix.arch }}
+          path: out/*
+
+  publicar:
+    needs: compilar
+    if: startsWith(github.ref, 'refs/tags/binarios-')
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: Binarios precompilados (${{ github.ref_name }})
+          body: |
+            OpenOCD (fork de ST) y arm-none-eabi-gdb para instalar el Banco remoto en placas ARM sin
+            compilar. Los usa scripts/binarios.sh (instalar_todo.sh --binarios armhf|arm64).
+          files: out/*

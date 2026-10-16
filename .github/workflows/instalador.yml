@@ -1,0 +1,41 @@
+# InstaladorBancoRemoto.exe: el asistente que instala el Banco remoto en una PC
+# con Windows o en una placa por SSH. Se publica al subir una etiqueta instalador-vN:
+#     git tag instalador-v1 && git push origin instalador-v1
+name: Instalador de Windows
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["instalador-v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  exe:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Tests del instalador
+        run: |
+          python -m venv .venv
+          .venv\Scripts\python -m pip install -q -r requirements-dev.txt -r installer\requirements.txt
+          .venv\Scripts\python -m pytest -q tests\test_installer.py tests\test_pc_mode.py
+      - name: Armar el .exe
+        run: powershell -ExecutionPolicy Bypass -File installer\build.ps1
+      - name: Probar que arranca
+        run: |
+          $p = Start-Process dist\InstaladorBancoRemoto.exe -ArgumentList "--selftest" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "El instalador no arrancó (código $($p.ExitCode))" }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: InstaladorBancoRemoto
+          path: dist/InstaladorBancoRemoto.exe
+      - uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/instalador-')
+        with:
+          name: Instalador (${{ github.ref_name }})
+          files: dist/InstaladorBancoRemoto.exe

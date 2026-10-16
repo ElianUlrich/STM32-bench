@@ -55,6 +55,10 @@ def ask_credentials(env_file: Path) -> None:
             print("No coinciden.")
             continue
         break
+    save_credentials(env_file, user, password)
+
+
+def save_credentials(env_file: Path, user: str, password: str) -> None:
     env_file.parent.mkdir(parents=True, exist_ok=True)
     lines = [
         "# Banco remoto en modo PC. Lo generó scripts/pc_run.py: la contraseña no se guarda, sólo su hash.",
@@ -93,10 +97,19 @@ def main() -> int:
     ap.add_argument("--password", action="store_true", help="cambiar usuario y contraseña")
     ap.add_argument("--check", action="store_true", help="sólo mostrar las herramientas")
     ap.add_argument("--no-browser", action="store_true")
+    ap.add_argument("--credenciales-stdin", action="store_true",
+                    help="guardar usuario y contraseña leídos de la entrada (dos líneas) y salir")
     args = ap.parse_args()
 
     if args.check:
         return 0 if show_tools() else 1
+    if args.credenciales_stdin:                      # lo usa el instalador (sin consola)
+        user, password = sys.stdin.readline().rstrip("\r\n"), sys.stdin.readline().rstrip("\r\n")
+        if not user or len(password) < MIN_PASSWORD:
+            print(f"Hace falta un usuario y una contraseña de al menos {MIN_PASSWORD} caracteres.", file=sys.stderr)
+            return 1
+        save_credentials(data_dir() / "banco.env", user, password)
+        return 0
 
     base = data_dir()
     env_file = base / "banco.env"

@@ -8,3 +8,8 @@ dev-data/
 
 # Paquete para copiar a la placa (git archive)
 *.tgz
+
+# Instalador: compilación de PyInstaller y el .exe
+installer/build/
+dist/
+*.spec

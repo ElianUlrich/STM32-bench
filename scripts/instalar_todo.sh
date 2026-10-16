@@ -8,8 +8,13 @@
 #                                                 primera instalación o actualización
 #   sudo bash scripts/instalar_todo.sh completo   todo desde una placa recién instalada (horas):
 #                                                 sistema, Tailscale, Python 3.9, OpenOCD, app y GDB
-#   ... --config   además reemplaza chips.yaml y bench.yaml por la versión nueva
-#                  (la anterior queda como .bak)
+#   ... --config             además reemplaza chips.yaml y bench.yaml por la versión nueva
+#                            (la anterior queda como .bak)
+#   ... --binarios armhf     OpenOCD y GDB precompilados (minutos en vez de horas; ver
+#                            scripts/binarios.sh). Si no sirven en esta placa, se compilan.
+#   ... --sin-gdb            no instalar GDB (la pestaña Depurar no va a funcionar)
+#   ... --credenciales F     usuario y contraseña de la web desde el archivo F (lo borra al
+#                            leerlo). Lo usa el instalador de Windows para no preguntar.
 #
 # Cada paso es idempotente: lo que ya está instalado no se vuelve a compilar,
 # así que se puede cortar y volver a correr.
@@ -17,8 +22,21 @@
 set -euo pipefail
 
 MODO="${1:-app}"
+[ $# -gt 0 ] && shift
 CONFIG=0
-[ "${2:-}" = "--config" ] && CONFIG=1
+BINARIOS=""
+SIN_GDB=0
+CREDENCIALES=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --config) CONFIG=1 ;;
+        --binarios) BINARIOS="${2:-}"; shift ;;
+        --sin-gdb) SIN_GDB=1 ;;
+        --credenciales) CREDENCIALES="${2:-}"; shift ;;
+        *) echo "Opción desconocida: $1" >&2; exit 1 ;;
+    esac
+    shift
+done
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
 CONF_DIR="/etc/stm32-bench"
 inicio=$(date +%s)
@@ -37,6 +55,14 @@ for f in "$DIR"/scripts/*.sh; do
 done
 
 # --- Usuario y contraseña de la web: se piden AL PRINCIPIO -----------------------
+if [ -n "$CREDENCIALES" ]; then
+    [ -f "$CREDENCIALES" ] || die "No existe el archivo de credenciales $CREDENCIALES"
+    set -a
+    # shellcheck disable=SC1090
+    . "$CREDENCIALES"
+    set +a
+    rm -f "$CREDENCIALES"
+fi
 # (en la instalación completa install.sh corre horas después; así no queda esperando)
 if [ ! -f "$CONF_DIR/bench.env" ] && [ -z "${ADMIN_PASSWORD:-}" ]; then
     paso "Acceso a la web"
@@ -96,7 +122,13 @@ if [ "$MODO" = "completo" ]; then
 
     # --- 4. OpenOCD ---------------------------------------------------------------------
     paso "4/6 OpenOCD de ST (45-90 min la primera vez)"
-    bash "$DIR/scripts/build_openocd.sh"
+    if [ -n "$BINARIOS" ] && ! [ -f /usr/local/share/openocd/scripts/target/stm32h5x.cfg ] \
+       && bash "$DIR/scripts/binarios.sh" openocd "$BINARIOS"; then
+        log "OpenOCD precompilado instalado."
+    else
+        [ -n "$BINARIOS" ] && [ ! -x /usr/local/bin/openocd ] && warn "Se compila OpenOCD en la placa."
+        bash "$DIR/scripts/build_openocd.sh"
+    fi
 fi
 
 # --- Aplicación ------------------------------------------------------------------
@@ -126,7 +158,14 @@ fi
 # --- GDB para la pestaña Depurar --------------------------------------------------
 if [ "$MODO" = "completo" ]; then
     paso "6/6 GDB 12 para la pestaña Depurar (3-6 h la primera vez)"
-    bash "$DIR/scripts/build_gdb.sh"
+    if [ "$SIN_GDB" = "1" ]; then
+        log "GDB salteado (--sin-gdb)."
+    elif [ -n "$BINARIOS" ] && ! [ -x /usr/local/bin/arm-none-eabi-gdb ] \
+         && bash "$DIR/scripts/binarios.sh" gdb "$BINARIOS"; then
+        log "GDB precompilado instalado."
+    else
+        bash "$DIR/scripts/build_gdb.sh"
+    fi
 fi
 
 # --- Resumen -------------------------------------------------------------------------

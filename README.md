@@ -26,6 +26,9 @@ de programación y depuración remota de microcontroladores **STM32**, **ESP32/E
   soporte, vía `uhubctl`) para reiniciar en frío una placa o un ST-Link colgado;
 - ver el estado de la placa y **apagarla o reiniciarla** con seguridad.
 
+Se instala con un **asistente para Windows** que detecta la placa y su sistema por SSH (ver
+[Instalador](#instalador-para-windows-asistente)).
+
 También corre **en tu PC con Windows**, sin BeagleBoard, usando los USB de la computadora (ver
 [Modo PC](#modo-pc-el-banco-en-tu-computadora-sin-beagleboard)).
 
@@ -127,6 +130,38 @@ La app puede ejecutar comandos en la placa, así que:
   chip. Por eso escucha por defecto **solo en la IP de Tailscale**, y OpenOCD se lanza con los puertos
   telnet y Tcl deshabilitados. Si en tu tailnet hay otras personas, restringí los puertos con las
   **ACL de Tailscale** (ver [Tailscale](#tailscale)).
+
+## Instalador para Windows (asistente)
+
+`InstaladorBancoRemoto.exe` instala el banco **en una placa por la red** o **en esta PC**, sin usar la
+consola. Trae la aplicación adentro y no necesita Git ni el cliente SSH de Windows.
+
+**En una placa** (BeagleBoard-xM, BeagleBone Black/Green, PocketBeagle, Beagle de 64 bits, Raspberry
+Pi, una PC con Linux):
+
+1. Pide la IP, el usuario y la contraseña de SSH, y releva la placa sin cambiar nada: modelo, sistema
+   de la microSD, procesador, RAM, espacio libre, Python, y si ya tiene Tailscale, OpenOCD o el banco.
+2. Muestra lo que detectó, con la **placa** y el **sistema** en listas por si hay que corregirlos.
+   Abajo van los pasos que faltan con su tiempo estimado y los avisos de esa placa (por ejemplo, los
+   GPIO de 1,8 V de la xM). Si la placa ya tiene el banco, propone sólo actualizar la aplicación.
+3. Ofrece **binarios precompilados** de OpenOCD y GDB (minutos en vez de horas en la xM), si existen
+   para el procesador y el sistema. Si no sirven en esa placa, `instalar_todo.sh` los compila como siempre.
+4. Pide la contraseña de sudo y, si es la primera vez, el usuario y la contraseña de la web. Ninguna
+   queda en la PC: la de sudo entra por `sudo -S`, y la de la web va a un archivo con permisos 600
+   que la placa borra al leerlo.
+5. Lanza `instalar_todo.sh` en la placa, separado de la conexión, y va mostrando el registro. Si cerrás
+   el instalador o se corta la red, la instalación sigue (`~/banco-instalar.log`). Cuando Tailscale
+   pide autorizar la placa, aparece un botón con el enlace.
+
+**En esta PC:** instala la app en `%LOCALAPPDATA%\BancoRemoto\app` con su propio entorno de Python,
+guarda el usuario de la web (sólo el hash) y crea el acceso directo "Banco remoto" en el escritorio
+(ver [Modo PC](#modo-pc-el-banco-en-tu-computadora-sin-beagleboard)). Necesita Python 3.9 o más nuevo.
+
+**Armarlo:** `powershell -ExecutionPolicy Bypass -File installer\build.ps1` deja `dist\InstaladorBancoRemoto.exe`
+(unos 15 MB). En GitHub, la etiqueta `instalador-vN` lo arma y lo publica en un release
+(`.github/workflows/instalador.yml`). Los binarios precompilados se publican con la etiqueta
+`binarios-vN` (`.github/workflows/binarios.yml`): OpenOCD y GDB compilados con los mismos scripts de
+siempre, para `armhf` (Ubuntu 16.04, glibc 2.23) y `arm64` (Debian 11).
 
 ## Instalación en la BeagleBoard-xM
 
@@ -957,6 +992,9 @@ app/
 web/                 index.html, app.js, graphs.js, plot.js (gráfico en canvas), style.css, login
                      (sin build, sin dependencias JS)
 config/              chips.yaml, bench.yaml, bench.example.env
+installer/           instalador de Windows: asistente (gui.py), detección de placa/sistema (perfil.py),
+                     SSH (remoto.py), instalación en la PC (pc.py), build.ps1
+.github/workflows/   binarios precompilados para las placas y el .exe del instalador
 scripts/             desplegar.ps1, instalar_todo.sh, build_openocd.sh, build_gdb.sh, install.sh, hash_password.py, dev_run.*, simuladores
 deploy/              systemd, udev, sudoers
 firmware/h503_leds/  firmware de prueba para STM32H503 (LEDs en PA0..PA7), fuentes y compilados
@@ -1064,6 +1102,13 @@ Verificalo en la BeagleBoard:
     sistema y que OpenOCD informe bien "no hay ST-Link". Falta probar con un ST-Link conectado
     (grabar, Depurar, Gráficos), un Arduino (avrdude con `-C`), un ESP32 en `COMx` y el STM32 en DFU
     con WinUSB.
+28. **Instalador en una placa real**: el relevamiento (`PROBE_SCRIPT`) y la instalación remota se
+    probaron sólo con tests (la placa no estaba en línea). Falta probarlos en la xM con Ubuntu 16.04 y
+    en una BeagleBone o Raspberry Pi. Probado en esta PC: el .exe arranca, la instalación en la PC
+    crea el entorno, guarda el hash y la app instalada levanta en modo PC.
+29. **Binarios precompilados**: el workflow `binarios.yml` todavía no corrió (se lanza con la
+    etiqueta `binarios-v1`). Hay que confirmar que GDB compile bajo QEMU dentro del límite de 6 h y que
+    `binarios.sh` encuentre todas las bibliotecas en la xM.
 
 ## Licencia
 
