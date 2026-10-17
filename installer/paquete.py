@@ -19,6 +19,15 @@ def resource(name: str) -> Path:
     return base / name
 
 
+def runtime_path() -> Path:
+    """Python embebido, bibliotecas y herramientas (installer/preparar.py)."""
+    frozen = getattr(sys, "_MEIPASS", None)
+    path = Path(frozen) / "runtime" if frozen else REPO / "installer" / "build" / "runtime"
+    if not (path / "python-embed.zip").is_file():
+        raise FileNotFoundError(f"Falta {path}: corré python -m installer.preparar")
+    return path
+
+
 def package_path() -> Path:
     bundled = resource(NAME)
     if bundled.is_file():

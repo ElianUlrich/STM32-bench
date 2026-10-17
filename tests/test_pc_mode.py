@@ -167,3 +167,40 @@ def test_mode_setting_does_not_clash_with_the_web_host(monkeypatch):
     monkeypatch.setenv("BENCH_BENCH_FILE", "config/bench.pc.yaml")
     s = settings_from_env()
     assert s.host == "pc" and s.bench_file.name == "bench.pc.yaml"
+
+
+def fake_bundled(base):
+    """La carpeta herramientas que deja el instalador (%LOCALAPPDATA%\BancoRemoto\herramientas)."""
+    from app.tools import EXE
+    return {
+        "openocd": _touch(base / "stm32" / "openocd" / "bin" / f"openocd{EXE}"),
+        "scripts": _touch(base / "stm32" / "openocd" / "scripts" / "target" / "stm32h5x.cfg").parents[1],
+        "gdb": _touch(base / "stm32" / "gdb" / f"arm-none-eabi-gdb{EXE}"),
+        "avrdude": _touch(base / "avrdude" / "bin" / f"avrdude{EXE}"),
+        "conf": _touch(base / "avrdude" / "etc" / "avrdude.conf"),
+        "dfu": _touch(base / "dfu-util" / f"dfu-util{EXE}"),
+    }
+
+
+def test_tools_installed_with_the_bench(tmp_path):
+    from app import tools
+    own = fake_bundled(tmp_path / "herramientas")
+    roots = tools.SearchRoots(st=[], local_appdata=tmp_path, appdata=tmp_path, program_files=[],
+                              path_lookup=lambda name: None, bundled=tmp_path / "herramientas")
+    found = tools.detect(roots)
+    assert found["openocd"].path == str(own["openocd"]) and found["openocd"].scripts_dir == str(own["scripts"])
+    assert found["openocd"].source == "instalado con el banco"
+    assert found["gdb"].path == str(own["gdb"])
+    assert found["avrdude"].path == str(own["avrdude"]) and found["avrdude"].config == str(own["conf"])
+    assert found["dfu-util"].path == str(own["dfu"])
+
+
+def test_cubeide_goes_first_for_stm32_but_not_for_arduino(tmp_path):
+    from app import tools
+    ide = fake_installs(tmp_path)
+    own = fake_bundled(tmp_path / "herramientas")
+    roots = tools.SearchRoots(st=[tmp_path / "ST"], local_appdata=tmp_path / "Local", appdata=tmp_path,
+                              program_files=[], path_lookup=lambda name: None, bundled=tmp_path / "herramientas")
+    found = tools.detect(roots)
+    assert found["openocd"].path == str(ide["openocd"]) and found["gdb"].path == str(ide["gdb"])
+    assert found["avrdude"].path == str(own["avrdude"]) and found["dfu-util"].path == str(own["dfu"])

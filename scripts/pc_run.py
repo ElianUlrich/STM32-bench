@@ -120,10 +120,11 @@ def main() -> int:
     host = "127.0.0.1"
     if args.tailscale:
         ts = system.tailscale_ipv4("tailscale0")
-        if not ts:
-            print("No se encontró la IP de Tailscale: ¿está abierto Tailscale en esta PC?")
-            return 1
-        host = ts
+        if ts:
+            host = ts
+        else:
+            print("Tailscale no está conectado en esta PC (¿falta iniciar sesión?): el banco queda sólo para")
+            print("esta PC por ahora. Cuando Tailscale esté conectado, volvé a abrirlo.\n")
     os.environ.update({
         "BENCH_ENV_FILE": str(env_file),
         "BENCH_MODE": "pc",

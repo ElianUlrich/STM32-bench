@@ -24,11 +24,15 @@ $Build = Join-Path $Repo "installer\build"
 New-Item -ItemType Directory -Force $Build | Out-Null
 & $Py -m installer.paquete (Join-Path $Build "banco-remoto.tgz")
 & $Py -m installer.icono (Join-Path $Build "banco-remoto.ico")
+# Python embebido, bibliotecas, avrdude, dfu-util y OpenOCD/GDB de ST: la PC no necesita nada más.
+& $Py -m installer.preparar
+if ($LASTEXITCODE -ne 0) { throw "No se pudo preparar lo que va adentro del instalador." }
 
 & $Py -m PyInstaller --noconfirm --clean --onefile --windowed `
     --name InstaladorBancoRemoto `
     --icon (Join-Path $Build "banco-remoto.ico") `
     --add-data "$(Join-Path $Build 'banco-remoto.tgz');." `
+    --add-data "$(Join-Path $Build 'runtime');runtime" `
     --paths $Repo `
     --distpath (Join-Path $Repo "dist") `
     --workpath (Join-Path $Build "pyi") `

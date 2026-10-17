@@ -37,6 +37,9 @@ def test_h5_and_h7_entries():
     assert h5.flash_size == 128 * 1024 and h7.flash_size == 1024 * 1024
     assert h5.methods == ["swd", "dfu"] and h7.dfu.vid_pid == "0483:df11"
     assert h7.dfu.address == 0x08000000   # por defecto, la base de flash
+    # El stm32h7x.cfg de ST necesita AP_NUM (núcleo Cortex-M7 en el AP 0): sin eso OpenOCD
+    # termina con "can't read AP_NUM" al usar stlink-dap.
+    assert ("AP_NUM", "0") in h7.swd.tcl_vars
 
 
 def test_hex_strings_and_defaults():

@@ -62,6 +62,8 @@ chips:
         interface: stlink-dap
         adapter_speed_khz: 4000
         flash_banks: [0]
+        # El stm32h7x.cfg de ST elige el núcleo con AP_NUM (0 = Cortex-M7); sin ella falla.
+        tcl_vars: { AP_NUM: 0 }
         idcode: { address: 0x5C001000, value: 0x483 }
         uid: 0x1FF1E800
       dfu:

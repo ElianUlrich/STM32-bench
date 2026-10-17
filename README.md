@@ -153,12 +153,36 @@ Pi, una PC con Linux):
    el instalador o se corta la red, la instalación sigue (`~/banco-instalar.log`). Cuando Tailscale
    pide autorizar la placa, aparece un botón con el enlace.
 
-**En esta PC:** instala la app en `%LOCALAPPDATA%\BancoRemoto\app` con su propio entorno de Python,
-guarda el usuario de la web (sólo el hash) y crea el acceso directo "Banco remoto" en el escritorio
-(ver [Modo PC](#modo-pc-el-banco-en-tu-computadora-sin-beagleboard)). Necesita Python 3.9 o más nuevo.
+**En esta PC:** instala todo lo que hace falta, sin que la persona tenga que buscar ni instalar nada
+antes (ver [Modo PC](#modo-pc-el-banco-en-tu-computadora-sin-beagleboard)). Queda en
+`%LOCALAPPDATA%\BancoRemoto` y no pide administrador:
+
+| Qué | De dónde |
+|---|---|
+| La aplicación | adentro del instalador |
+| Python 3.12 (embebido, privado del banco: no toca otros Python) | adentro del instalador (python.org, SHA-256 verificado al armarlo) |
+| Bibliotecas: FastAPI, pyserial, esptool 4.12... | adentro del instalador, las mismas versiones con las que pasan los tests |
+| avrdude 6.3 y dfu-util 0.11 | adentro del instalador (las del IDE de Arduino, SHA-256 verificado) |
+| OpenOCD de ST (STM32H5/H7) y `arm-none-eabi-gdb` | los de STM32CubeIDE si está instalado; si no, los que trae el instalador |
+| Tailscale (opcional, "Acceso remoto") | se baja el instalador oficial, se verifica la firma digital de Tailscale Inc. y se instala (Windows pide permiso una vez) |
+
+Además guarda el usuario de la web (sólo el hash) y crea el acceso directo "Banco remoto". La lista de
+programas de terceros, con sus licencias y dónde está su código fuente, queda en `LICENCIAS.txt`.
+
+Para varias PC de un laboratorio, sin ventanas (la contraseña de la web va en una variable de entorno,
+nunca en la línea de comandos):
+
+```bat
+set BANCO_CLAVE_WEB=...
+InstaladorBancoRemoto.exe --instalar-pc "%LOCALAPPDATA%\BancoRemoto" --usuario laboratorio
+```
+
+Lo único que no instala solo es el driver **WinUSB** para el STM32 en modo DFU (se pone con Zadig, ver
+Modo PC). El driver del ST-Link viene con STM32CubeIDE.
 
 **Armarlo:** `powershell -ExecutionPolicy Bypass -File installer\build.ps1` deja `dist\InstaladorBancoRemoto.exe`
-(unos 15 MB). En GitHub, la etiqueta `instalador-vN` lo arma y lo publica en un release
+(unos 45 MB). `installer/preparar.py` junta lo que va adentro (descargas con SHA-256 fijo; OpenOCD y GDB se
+copian del STM32CubeIDE de la PC donde se arma). En GitHub, la etiqueta `instalador-vN` lo arma y lo publica en un release
 (`.github/workflows/instalador.yml`). Los binarios precompilados se publican con la etiqueta
 `binarios-vN` (`.github/workflows/binarios.yml`): OpenOCD y GDB compilados con los mismos scripts de
 siempre, para `armhf` (Ubuntu 16.04, glibc 2.23) y `arm64` (Debian 11).
@@ -866,7 +890,9 @@ La misma web puede correr en una PC con Windows y usar los USB de esa computador
 trabajar en tu mesa, o cuando no tenés la BeagleBoard a mano. Todo lo de la interfaz funciona igual
 (flashear, Depurar, Gráficos, Micro, monitor serie, RTT).
 
-**Qué hace falta** (casi siempre ya está instalado):
+Con el **instalador** (`InstaladorBancoRemoto.exe`, ver [Instalador](#instalador-para-windows-asistente)) no
+hace falta nada más: trae Python y las herramientas. Corriéndolo **desde el repositorio** con
+`iniciar_pc.bat`, toma lo que haya en la PC:
 
 | Para | Herramienta | De dónde la toma |
 |---|---|---|

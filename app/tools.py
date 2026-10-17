@@ -9,6 +9,9 @@ Windows ya suelen estar, porque las traen los IDE:
   %LOCALAPPDATA%\\Arduino15\\packages\\arduino\\tools\\...
 * xPack OpenOCD:  %APPDATA%\\xPacks\\@xpack-dev-tools\\openocd\\<versión>\\.content\\
 * o el PATH.
+* Las que deja el instalador del banco (%LOCALAPPDATA%\\BancoRemoto\\herramientas):
+  avrdude y dfu-util se usan siempre de ahí (son las versiones probadas); OpenOCD y
+  GDB de ST, sólo si no hay STM32CubeIDE.
 
 En bench.yaml, "auto" en vez de una ruta usa lo que se encuentre acá
 (config/bench.pc.yaml lo trae así). `python -m app.tools` muestra qué encontró.
@@ -45,14 +48,21 @@ class SearchRoots:
     appdata: Optional[Path]
     program_files: List[Path]
     path_lookup: Callable[[str], Optional[str]] = field(default=shutil.which)
+    bundled: Optional[Path] = None      # herramientas que instaló el banco
 
 
 def default_roots() -> SearchRoots:
     env = os.environ.get
     pf = [Path(p) for p in (env("ProgramFiles"), env("ProgramFiles(x86)")) if p]
     st = [Path(env("SystemDrive", "C:") + "\\ST")] + [p / "STMicroelectronics" / "STM32Cube" for p in pf]
+    # El instalador deja la app en BancoRemoto/app y las herramientas en BancoRemoto/herramientas.
+    bundled = Path(env("BANCO_HERRAMIENTAS") or Path(__file__).resolve().parents[2] / "herramientas")
     return SearchRoots(st=st, local_appdata=Path(env("LOCALAPPDATA")) if env("LOCALAPPDATA") else None,
-                       appdata=Path(env("APPDATA")) if env("APPDATA") else None, program_files=pf)
+                       appdata=Path(env("APPDATA")) if env("APPDATA") else None, program_files=pf,
+                       bundled=bundled if bundled.is_dir() else None)
+
+
+BUNDLED = "instalado con el banco"
 
 
 def _version_key(text: str) -> List[int]:
@@ -86,6 +96,11 @@ def find_openocd(roots: SearchRoots) -> Optional[Found]:
                          key=lambda p: _version_key(p.parents[2].name), reverse=True)
         if exe and scripts:
             return Found(str(exe), _ide_version(plugins), scripts_dir=str(scripts[0]))
+    if roots.bundled:
+        exe = roots.bundled / "stm32" / "openocd" / "bin" / f"openocd{EXE}"
+        scripts = roots.bundled / "stm32" / "openocd" / "scripts"
+        if exe.is_file() and scripts.is_dir():
+            return Found(str(exe), BUNDLED, scripts_dir=str(scripts))
     if roots.appdata:
         base = roots.appdata / "xPacks" / "@xpack-dev-tools" / "openocd"
         exe = _newest(base.glob(f"*/.content/bin/openocd{EXE}"), lambda p: p.parents[2].name)
@@ -103,6 +118,8 @@ def find_gdb(roots: SearchRoots) -> Optional[Found]:
                                    f"arm-none-eabi-gdb{EXE}"), lambda p: p.parents[2].name)
         if exe:
             return Found(str(exe), _ide_version(plugins))
+    if roots.bundled and (roots.bundled / "stm32" / "gdb" / f"arm-none-eabi-gdb{EXE}").is_file():
+        return Found(str(roots.bundled / "stm32" / "gdb" / f"arm-none-eabi-gdb{EXE}"), BUNDLED)
     path = roots.path_lookup("arm-none-eabi-gdb")
     return Found(path, "PATH") if path else None
 
@@ -115,6 +132,10 @@ def _arduino_tools(roots: SearchRoots) -> Optional[Path]:
 
 
 def find_avrdude(roots: SearchRoots) -> Optional[Found]:
+    if roots.bundled and (roots.bundled / "avrdude" / "bin" / f"avrdude{EXE}").is_file():
+        conf = roots.bundled / "avrdude" / "etc" / "avrdude.conf"
+        return Found(str(roots.bundled / "avrdude" / "bin" / f"avrdude{EXE}"), BUNDLED,
+                     config=str(conf) if conf.is_file() else None)
     tools = _arduino_tools(roots)
     if tools:
         exe = _newest(tools.glob(f"avrdude/*/bin/avrdude{EXE}"), lambda p: p.parents[1].name)
@@ -131,6 +152,8 @@ def find_avrdude(roots: SearchRoots) -> Optional[Found]:
 
 
 def find_dfu_util(roots: SearchRoots) -> Optional[Found]:
+    if roots.bundled and (roots.bundled / "dfu-util" / f"dfu-util{EXE}").is_file():
+        return Found(str(roots.bundled / "dfu-util" / f"dfu-util{EXE}"), BUNDLED)
     path = roots.path_lookup("dfu-util")
     if path:
         return Found(path, "PATH")

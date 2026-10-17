@@ -217,12 +217,14 @@ class Wizard(tk.Tk):
     # ------------------------------------------------------------ 2a. esta PC
     def page_pc(self) -> None:
         f = self._page("Instalar en esta PC",
-                       "Se instala para tu usuario de Windows (no hace falta ser administrador).")
-        self.pc_dir = tk.StringVar(value=str(pc.default_dir()))
+                       "Se instala todo lo necesario para tu usuario de Windows: no hace falta tener Python ni "
+                       "buscar programas.")
+        self.pc_dir = tk.StringVar(value=str(pc.default_base()))
         self.pc_user = tk.StringVar(value=os.environ.get("USERNAME") or "admin")
         self.pc_pass = tk.StringVar()
         self.pc_pass2 = tk.StringVar()
         self.pc_shortcut = tk.BooleanVar(value=True)
+        self.pc_tailscale = tk.BooleanVar(value=True)
         g = ttk.Frame(f)
         g.pack(fill="x")
         g.columnconfigure(1, weight=1)
@@ -237,12 +239,17 @@ class Wizard(tk.Tk):
         ttk.Entry(g, textvariable=self.pc_pass2, show="•", width=28).grid(row=3, column=1, sticky="w", padx=8)
         ttk.Label(g, text=f"Mínimo {MIN_PASSWORD} caracteres. Se guarda sólo su hash.", style="Sub.TLabel").grid(
             row=4, column=1, sticky="w", padx=8)
-        ttk.Checkbutton(f, text="Crear el acceso directo \"Banco remoto\" en el escritorio",
-                        variable=self.pc_shortcut).pack(anchor="w", pady=(12, 8))
-        ttk.Label(f, text="Lo que encontré en esta PC", style="Key.TLabel").pack(anchor="w", pady=(8, 2))
+        opts = ttk.Frame(f)
+        opts.pack(fill="x", pady=(10, 4))
+        ttk.Checkbutton(opts, text="Acceso directo \"Banco remoto\" en el escritorio",
+                        variable=self.pc_shortcut).pack(anchor="w")
+        self.pc_ts_check = ttk.Checkbutton(opts, text="Acceso remoto con Tailscale (entrar desde otras PC)",
+                                           variable=self.pc_tailscale)
+        self.pc_ts_check.pack(anchor="w")
+        ttk.Label(f, text="Lo que va a tener el banco", style="Key.TLabel").pack(anchor="w", pady=(8, 2))
         self.pc_checks = ttk.Frame(f)
         self.pc_checks.pack(fill="x")
-        ttk.Label(self.pc_checks, text="Buscando…", style="Sub.TLabel").pack(anchor="w")
+        ttk.Label(self.pc_checks, text="Revisando esta PC…", style="Sub.TLabel").pack(anchor="w")
         self._nav(back=self.page_inicio, next_=self._start_pc, next_text="Instalar")
         threading.Thread(target=self._scan_pc, daemon=True).start()
 
@@ -252,32 +259,34 @@ class Wizard(tk.Tk):
             self.pc_dir.set(str(Path(d)))
 
     def _scan_pc(self) -> None:
-        rows = []
-        py = pc.find_python()
-        rows.append(("Python 3.9+", " ".join(py) if py else "no encontrado: instalalo desde python.org", bool(py)))
+        own = "se instala con el banco"
+        rows = [("Python 3.12", own + " (privado, no toca otros Python)"),
+                ("Bibliotecas", own + " (FastAPI, pyserial, esptool…)")]
         try:
             from app import tools
             found = tools.detect()
-            for key, label in (("openocd", "OpenOCD (STM32)"), ("gdb", "GDB (Depurar)"),
-                               ("avrdude", "avrdude (Arduino)"), ("dfu-util", "dfu-util (DFU)")):
-                item = found.get(key)
-                rows.append((label, item.source if item else "no encontrado", bool(item)))
-        except Exception as exc:                                   # pragma: no cover
-            rows.append(("Herramientas", f"no se pudo revisar ({exc})", False))
+        except Exception:                                          # pragma: no cover
+            found = {}
+        for key, label in (("openocd", "OpenOCD de ST"), ("gdb", "GDB (Depurar)")):
+            item = found.get(key)
+            from_ide = item is not None and item.source.startswith("STM32CubeIDE")
+            rows.append((label, f"el de {item.source}" if from_ide else own))
+        rows += [("avrdude (Arduino)", own), ("dfu-util (USB DFU)", own)]
+        ts_ip = pc.tailscale_ip()
+        ts = pc.tailscale_exe()
+        ts_text = (f"ya instalado ({ts_ip})" if ts_ip else "ya instalado: hay que iniciar sesión") if ts \
+            else "se baja el instalador oficial y Windows pide permiso"
 
         def show() -> None:
             if not self.pc_checks.winfo_exists():
                 return
             for w in self.pc_checks.winfo_children():
                 w.destroy()
-            for label, text, ok in rows:
+            for label, text in rows + [("Tailscale", ts_text)]:
                 line = ttk.Frame(self.pc_checks)
                 line.pack(fill="x")
-                ttk.Label(line, text=("✓ " if ok else "• ") + label, width=22,
-                          style="Ok.TLabel" if ok else "Warn.TLabel").pack(side="left")
+                ttk.Label(line, text="✓ " + label, width=22, style="Ok.TLabel").pack(side="left")
                 ttk.Label(line, text=text, style="Sub.TLabel").pack(side="left")
-            ttk.Label(self.pc_checks, text="Lo que falte se puede instalar después: el banco lo detecta al abrirlo.",
-                      style="Sub.TLabel").pack(anchor="w", pady=(6, 0))
         self.ui(show)
 
     def _start_pc(self) -> None:
@@ -289,15 +298,19 @@ class Wizard(tk.Tk):
         if pw != pw2:
             messagebox.showwarning(TITLE, "Las contraseñas no coinciden.", parent=self)
             return
-        dest = Path(self.pc_dir.get())
-        log = self.page_progreso("Instalando en esta PC", "Copia la aplicación, crea su entorno de Python e "
-                                 "instala las dependencias.")
+        base = Path(self.pc_dir.get())
+        tailscale = self.pc_tailscale.get()
+        self._pc_remote = tailscale
+        log = self.page_progreso("Instalando en esta PC",
+                                 "Copia la aplicación, su Python, las bibliotecas y las herramientas. Tarda menos "
+                                 "de un minuto" + (" (más la descarga de Tailscale)." if tailscale else "."))
         self.progress.configure(mode="indeterminate")
         self.progress.start(12)
 
         def job():
-            return pc.install(paquete.package_path(), dest, user, pw, self.pc_shortcut.get(), self._icon_bytes,
-                              log=lambda line: self.ui(lambda: log(line)))
+            return pc.install(paquete.package_path(), paquete.runtime_path(), base, user, pw,
+                              self.pc_shortcut.get(), self._icon_bytes, tailscale=tailscale,
+                              remote_access=tailscale, log=lambda line: self.ui(lambda: log(line)))
 
         def done(bat):
             self.progress.stop()
@@ -308,13 +321,21 @@ class Wizard(tk.Tk):
         self.btn_back.configure(state="disabled")
 
     def page_fin_pc(self, bat: Path) -> None:
+        remote = getattr(self, "_pc_remote", False)
         f = self._page("Listo: el Banco remoto quedó instalado en esta PC",
-                       "Para abrirlo usá el acceso directo \"Banco remoto\" del escritorio (o iniciar_pc.bat en la "
-                       "carpeta de instalación). Se abre en el navegador, en http://127.0.0.1:8080.")
-        ttk.Label(f, text=str(bat.parent), style="Sub.TLabel").pack(anchor="w")
-        ttk.Label(f, text="Para que lo usen otras PC de tu red de Tailscale: iniciar_pc.bat --tailscale",
+                       "Para abrirlo usá el acceso directo \"Banco remoto\" del escritorio. Se abre en el "
+                       "navegador.")
+        ttk.Label(f, text=str(bat.parent.parent), style="Sub.TLabel").pack(anchor="w")
+        if remote:
+            ip = pc.tailscale_ip()
+            text = (f"Desde otras PC de tu Tailscale: http://{ip}:8080" if ip else
+                    "Cuando termines de iniciar sesión en Tailscale, las otras PC de tu red van a poder entrar "
+                    "con la IP de Tailscale de esta PC, puerto 8080.")
+            ttk.Label(f, text=text, style="Sub.TLabel", wraplength=720).pack(anchor="w", pady=(10, 0))
+        ttk.Label(f, text="Lo que instala está en LICENCIAS.txt (programas libres de terceros).",
                   style="Sub.TLabel").pack(anchor="w", pady=(10, 0))
-        self._nav(next_=lambda: (pc.launch(bat), self.destroy()), next_text="Abrir el banco", cancel_text="Cerrar")
+        self._nav(next_=lambda: (pc.launch(bat, "--tailscale" if remote else ""), self.destroy()),
+                  next_text="Abrir el banco", cancel_text="Cerrar")
 
     # --------------------------------------------------- 2b. placa: conexión
     def page_conexion(self) -> None:
@@ -629,8 +650,13 @@ def main() -> int:
     if "--selftest" in sys.argv:              # que la ventana se arme (para el .exe recién compilado)
         import paramiko  # noqa: F401          (SSH a la placa)
         from app import tools  # noqa: F401    (herramientas de la PC)
-        if not paquete.resource(paquete.NAME).is_file() and getattr(sys, "frozen", False):
-            return 2                           # el .exe no trae la aplicación
+        if getattr(sys, "frozen", False):
+            if not paquete.resource(paquete.NAME).is_file():
+                return 2                       # el .exe no trae la aplicación
+            try:
+                paquete.runtime_path()         # ni Python ni las herramientas
+            except FileNotFoundError:
+                return 3
         w = Wizard()
         w.update()
         w.page_conexion()
@@ -638,7 +664,37 @@ def main() -> int:
         w.destroy()
         print("ok")
         return 0
+    if "--instalar-pc" in sys.argv:           # instalación desatendida (varias PC de un laboratorio)
+        return install_pc_unattended(sys.argv)
     Wizard().mainloop()
+    return 0
+
+
+def install_pc_unattended(argv) -> int:
+    """InstaladorBancoRemoto.exe --instalar-pc CARPETA --usuario U [--sin-acceso-directo] [--tailscale]
+
+    La contraseña de la web va en la variable de entorno BANCO_CLAVE_WEB (nunca en la línea de
+    comandos). El registro queda en CARPETA\\instalacion.log; el código de salida es 0 si salió bien."""
+    def arg(name: str) -> Optional[str]:
+        return argv[argv.index(name) + 1] if name in argv and argv.index(name) + 1 < len(argv) else None
+    base = Path(arg("--instalar-pc") or pc.default_base())
+    user, password = arg("--usuario") or "admin", os.environ.get("BANCO_CLAVE_WEB", "")
+    base.mkdir(parents=True, exist_ok=True)
+    with open(base / "instalacion.log", "w", encoding="utf-8") as fh:
+        def log(line: str) -> None:
+            fh.write(line + "\n")
+            fh.flush()
+        if len(password) < MIN_PASSWORD:
+            log(f"Falta BANCO_CLAVE_WEB (mínimo {MIN_PASSWORD} caracteres).")
+            return 1
+        try:
+            pc.install(paquete.package_path(), paquete.runtime_path(), base, user, password,
+                       "--sin-acceso-directo" not in argv, icono.ico(), tailscale="--tailscale" in argv,
+                       remote_access="--tailscale" in argv, log=log)
+        except Exception as exc:
+            log(f"ERROR: {exc}")
+            return 1
+        log("Listo.")
     return 0
 
 
