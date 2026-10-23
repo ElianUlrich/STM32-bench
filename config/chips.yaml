@@ -282,3 +282,138 @@ chips:
     group: Arduino / AVR
     methods:
       avrdude: { part: atmega328p, programmer: usbasp, flash_kb: 32, bootloader_kb: 0 }
+
+# =============================================================================
+# STM32: catálogo por familias. Agregar un STM32 = UNA línea en "stm32:" con
+#   id, name, family, dev_id (DBGMCU_IDCODE & 0xFFF, del manual de referencia) y flash_kb.
+# Lo común de la familia está en "stm32_families:" y la línea lo puede pisar
+# (dfu, interface, adapter_speed_khz, uid, flash_banks, tcl_vars, sector_kb).
+# Antes de grabar se lee el ID del chip conectado: si no coincide, no se toca la flash
+# y el banco dice qué chip es.
+#
+# interface: stlink-dap (lo que usa STM32CubeIDE): ST-Link V2-1 y V3, y V2 con firmware
+# J24 o más nuevo (se actualiza con STM32CubeProgrammer). Para un V2 viejo, elegí "stlink"
+# en Opciones avanzadas.
+# dfu: el bootloader de ST tiene USB DFU (0483:df11) en esa familia o en ese chip.
+# =============================================================================
+stm32_families:
+  C0:  { core: Cortex-M0+, target_cfg: target/stm32c0x.cfg, idcode_address: 0x40015800, uid: 0x1FFF7550, interface: stlink-dap }
+  F0:  { core: Cortex-M0, target_cfg: target/stm32f0x.cfg, idcode_address: 0x40015800, uid: 0x1FFFF7AC, interface: stlink-dap }
+  F1:  { core: Cortex-M3, target_cfg: target/stm32f1x.cfg, idcode_address: 0xE0042000, uid: 0x1FFFF7E8, interface: stlink-dap, adapter_speed_khz: 1000 }
+  F2:  { core: Cortex-M3, target_cfg: target/stm32f2x.cfg, idcode_address: 0xE0042000, uid: 0x1FFF7A10, interface: stlink-dap, dfu: true }
+  F3:  { core: Cortex-M4, target_cfg: target/stm32f3x.cfg, idcode_address: 0xE0042000, uid: 0x1FFFF7AC, interface: stlink-dap }
+  F4:  { core: Cortex-M4, target_cfg: target/stm32f4x.cfg, idcode_address: 0xE0042000, uid: 0x1FFF7A10, interface: stlink-dap, adapter_speed_khz: 2000, dfu: true }
+  F7:  { core: Cortex-M7, target_cfg: target/stm32f7x.cfg, idcode_address: 0xE0042000, uid: 0x1FF0F420, interface: stlink-dap, dfu: true }
+  G0:  { core: Cortex-M0+, target_cfg: target/stm32g0x.cfg, idcode_address: 0x40015800, uid: 0x1FFF7590, interface: stlink-dap }
+  G4:  { core: Cortex-M4, target_cfg: target/stm32g4x.cfg, idcode_address: 0xE0042000, uid: 0x1FFF7590, interface: stlink-dap, dfu: true }
+  # H5: la CPU está en el AP 1 (sólo stlink-dap).
+  H5:  { core: Cortex-M33, target_cfg: target/stm32h5x.cfg, idcode_address: 0x44024000, uid: 0x08FFF800, interface: stlink-dap, dfu: true }
+  # H7: el stm32h7x.cfg de ST elige el núcleo con AP_NUM (0 = Cortex-M7).
+  H7:  { core: Cortex-M7, target_cfg: target/stm32h7x.cfg, idcode_address: 0x5C001000, uid: 0x1FF1E800, interface: stlink-dap, dfu: true, tcl_vars: { AP_NUM: 0 } }
+  L0:  { core: Cortex-M0+, target_cfg: target/stm32l0x.cfg, idcode_address: 0x40015800, uid: 0x1FF80050, interface: stlink-dap }
+  # L1: la dirección del número de serie depende de la categoría del chip: no se muestra.
+  L1:  { core: Cortex-M3, target_cfg: target/stm32l1x.cfg, idcode_address: 0xE0042000, interface: stlink-dap }
+  L4:  { core: Cortex-M4, target_cfg: target/stm32l4x.cfg, idcode_address: 0xE0042000, uid: 0x1FFF7590, interface: stlink-dap, dfu: true }
+  L4+: { core: Cortex-M4, target_cfg: target/stm32l4plusx.cfg, idcode_address: 0xE0042000, uid: 0x1FFF7590, interface: stlink-dap, dfu: true }
+  L5:  { core: Cortex-M33, target_cfg: target/stm32l5x.cfg, idcode_address: 0xE0044000, uid: 0x0BFA0590, interface: stlink-dap, dfu: true }
+  U0:  { core: Cortex-M0+, target_cfg: target/stm32u0x.cfg, idcode_address: 0x40015800, interface: stlink-dap }
+  U5:  { core: Cortex-M33, target_cfg: target/stm32u5x.cfg, idcode_address: 0xE0044000, uid: 0x0BFA0700, interface: stlink-dap, dfu: true }
+  WB:  { core: Cortex-M4, target_cfg: target/stm32wbx.cfg, idcode_address: 0xE0042000, uid: 0x1FFF7580, interface: stlink-dap, dfu: true }
+  WL:  { core: Cortex-M4, target_cfg: target/stm32wlx.cfg, idcode_address: 0xE0042000, uid: 0x1FFF7590, interface: stlink-dap }
+
+stm32:
+  # C0
+  - { id: stm32c011f6, name: STM32C011F6,                       family: C0, dev_id: 0x443, flash_kb: 32 }
+  - { id: stm32c031c6, name: STM32C031C6 (Nucleo-C031C6),       family: C0, dev_id: 0x453, flash_kb: 32 }
+  # F0
+  - { id: stm32f030f4, name: STM32F030F4,                       family: F0, dev_id: 0x444, flash_kb: 16 }
+  - { id: stm32f030c8, name: STM32F030C8,                       family: F0, dev_id: 0x440, flash_kb: 64 }
+  - { id: stm32f030r8, name: STM32F030R8 (Nucleo-F030R8),       family: F0, dev_id: 0x440, flash_kb: 64 }
+  - { id: stm32f031k6, name: STM32F031K6 (Nucleo-F031K6),       family: F0, dev_id: 0x444, flash_kb: 32 }
+  - { id: stm32f042k6, name: STM32F042K6 (Nucleo-F042K6),       family: F0, dev_id: 0x445, flash_kb: 32, dfu: true }
+  - { id: stm32f051r8, name: STM32F051R8 (STM32F0-Discovery),   family: F0, dev_id: 0x440, flash_kb: 64 }
+  - { id: stm32f070rb, name: STM32F070RB (Nucleo-F070RB),       family: F0, dev_id: 0x448, flash_kb: 128, dfu: true }
+  - { id: stm32f072rb, name: STM32F072RB (Nucleo-F072RB),       family: F0, dev_id: 0x448, flash_kb: 128, dfu: true }
+  - { id: stm32f091rc, name: STM32F091RC (Nucleo-F091RC),       family: F0, dev_id: 0x442, flash_kb: 256 }
+  # F1 (las "Blue Pill" con clones CKS32/CS32 tienen otro ID: ver stm32f103c8 arriba)
+  - { id: stm32f100rb, name: STM32F100RB (STM32VLDISCOVERY),    family: F1, dev_id: 0x420, flash_kb: 128 }
+  - { id: stm32f103c6, name: STM32F103C6,                       family: F1, dev_id: 0x412, flash_kb: 32 }
+  - { id: stm32f103cb, name: STM32F103CB (Blue Pill 128 KB),    family: F1, dev_id: 0x410, flash_kb: 128 }
+  - { id: stm32f103rb, name: STM32F103RB (Nucleo-F103RB),       family: F1, dev_id: 0x410, flash_kb: 128 }
+  - { id: stm32f103rc, name: STM32F103RC,                       family: F1, dev_id: 0x414, flash_kb: 256 }
+  - { id: stm32f103re, name: STM32F103RE,                       family: F1, dev_id: 0x414, flash_kb: 512 }
+  - { id: stm32f103ve, name: STM32F103VE,                       family: F1, dev_id: 0x414, flash_kb: 512 }
+  - { id: stm32f105rc, name: STM32F105RC,                       family: F1, dev_id: 0x418, flash_kb: 256, dfu: true }
+  - { id: stm32f107vc, name: STM32F107VC,                       family: F1, dev_id: 0x418, flash_kb: 256, dfu: true }
+  # F2
+  - { id: stm32f205rg, name: STM32F205RG,                       family: F2, dev_id: 0x411, flash_kb: 1024 }
+  - { id: stm32f207zg, name: STM32F207ZG (Nucleo-F207ZG),       family: F2, dev_id: 0x411, flash_kb: 1024 }
+  # F3
+  - { id: stm32f302r8, name: STM32F302R8 (Nucleo-F302R8),       family: F3, dev_id: 0x439, flash_kb: 64 }
+  - { id: stm32f303k8, name: STM32F303K8 (Nucleo-F303K8),       family: F3, dev_id: 0x438, flash_kb: 64 }
+  - { id: stm32f303re, name: STM32F303RE (Nucleo-F303RE),       family: F3, dev_id: 0x446, flash_kb: 512, dfu: true }
+  - { id: stm32f303vc, name: STM32F303VC (STM32F3-Discovery),   family: F3, dev_id: 0x422, flash_kb: 256, dfu: true }
+  - { id: stm32f334r8, name: STM32F334R8 (Nucleo-F334R8),       family: F3, dev_id: 0x438, flash_kb: 64 }
+  # F4
+  - { id: stm32f401cc, name: STM32F401CC (Black Pill 256 KB),   family: F4, dev_id: 0x423, flash_kb: 256 }
+  - { id: stm32f401ce, name: STM32F401CE (Black Pill 512 KB),   family: F4, dev_id: 0x433, flash_kb: 512 }
+  - { id: stm32f401re, name: STM32F401RE (Nucleo-F401RE),       family: F4, dev_id: 0x433, flash_kb: 512, adapter_speed_khz: 4000 }
+  - { id: stm32f405rg, name: STM32F405RG,                       family: F4, dev_id: 0x413, flash_kb: 1024 }
+  - { id: stm32f407vg, name: STM32F407VG (STM32F4-Discovery),   family: F4, dev_id: 0x413, flash_kb: 1024, adapter_speed_khz: 4000 }
+  - { id: stm32f407zg, name: STM32F407ZG,                       family: F4, dev_id: 0x413, flash_kb: 1024 }
+  - { id: stm32f410rb, name: STM32F410RB (Nucleo-F410RB),       family: F4, dev_id: 0x458, flash_kb: 128, dfu: false, adapter_speed_khz: 4000 }
+  - { id: stm32f411re, name: STM32F411RE (Nucleo-F411RE),       family: F4, dev_id: 0x431, flash_kb: 512, adapter_speed_khz: 4000 }
+  - { id: stm32f412zg, name: STM32F412ZG (Nucleo-F412ZG),       family: F4, dev_id: 0x441, flash_kb: 1024, adapter_speed_khz: 4000 }
+  - { id: stm32f413zh, name: STM32F413ZH (Nucleo-F413ZH),       family: F4, dev_id: 0x463, flash_kb: 1536, adapter_speed_khz: 4000 }
+  - { id: stm32f429zi, name: STM32F429ZI (Nucleo-F429ZI),       family: F4, dev_id: 0x419, flash_kb: 2048, adapter_speed_khz: 4000 }
+  - { id: stm32f446re, name: STM32F446RE (Nucleo-F446RE),       family: F4, dev_id: 0x421, flash_kb: 512, adapter_speed_khz: 4000 }
+  - { id: stm32f446ze, name: STM32F446ZE (Nucleo-F446ZE),       family: F4, dev_id: 0x421, flash_kb: 512, adapter_speed_khz: 4000 }
+  - { id: stm32f469ni, name: STM32F469NI (STM32F469I-Discovery), family: F4, dev_id: 0x434, flash_kb: 2048, adapter_speed_khz: 4000 }
+  # F7
+  - { id: stm32f722ze, name: STM32F722ZE (Nucleo-F722ZE),       family: F7, dev_id: 0x452, flash_kb: 512, uid: 0x1FF07A10 }
+  - { id: stm32f746zg, name: STM32F746ZG (Nucleo-F746ZG),       family: F7, dev_id: 0x449, flash_kb: 1024 }
+  - { id: stm32f767zi, name: STM32F767ZI (Nucleo-F767ZI),       family: F7, dev_id: 0x451, flash_kb: 2048 }
+  # G0
+  - { id: stm32g030f6, name: STM32G030F6,                       family: G0, dev_id: 0x466, flash_kb: 32 }
+  - { id: stm32g031k8, name: STM32G031K8 (Nucleo-G031K8),       family: G0, dev_id: 0x466, flash_kb: 64 }
+  - { id: stm32g070rb, name: STM32G070RB (Nucleo-G070RB),       family: G0, dev_id: 0x460, flash_kb: 128 }
+  - { id: stm32g0b1re, name: STM32G0B1RE (Nucleo-G0B1RE),       family: G0, dev_id: 0x467, flash_kb: 512, dfu: true }
+  # G4
+  - { id: stm32g431cb, name: STM32G431CB (WeAct G431),          family: G4, dev_id: 0x468, flash_kb: 128 }
+  - { id: stm32g431kb, name: STM32G431KB (Nucleo-G431KB),       family: G4, dev_id: 0x468, flash_kb: 128 }
+  - { id: stm32g431rb, name: STM32G431RB (Nucleo-G431RB),       family: G4, dev_id: 0x468, flash_kb: 128 }
+  - { id: stm32g491re, name: STM32G491RE (Nucleo-G491RE),       family: G4, dev_id: 0x479, flash_kb: 512 }
+  # H5
+  - { id: stm32h503rb, name: STM32H503RB (Nucleo-H503RB),       family: H5, dev_id: 0x474, flash_kb: 128 }
+  - { id: stm32h533re, name: STM32H533RE (Nucleo-H533RE),       family: H5, dev_id: 0x478, flash_kb: 512 }
+  - { id: stm32h563zi, name: STM32H563ZI (Nucleo-H563ZI),       family: H5, dev_id: 0x484, flash_kb: 2048 }
+  # H7 (los de 2 MB tienen dos bancos de flash)
+  - { id: stm32h723zg, name: STM32H723ZG (Nucleo-H723ZG),       family: H7, dev_id: 0x483, flash_kb: 1024 }
+  - { id: stm32h743zi, name: STM32H743ZI (Nucleo-H743ZI),       family: H7, dev_id: 0x450, flash_kb: 2048, flash_banks: [0, 1], tcl_vars: { AP_NUM: 0, DUAL_BANK: 1 } }
+  - { id: stm32h750vb, name: STM32H750VB,                       family: H7, dev_id: 0x450, flash_kb: 128 }
+  - { id: stm32h7a3zi, name: STM32H7A3ZI (Nucleo-H7A3ZI-Q),     family: H7, dev_id: 0x480, flash_kb: 2048, flash_banks: [0, 1], tcl_vars: { AP_NUM: 0, DUAL_BANK: 1 }, uid: 0x08FFF800 }
+  # L0
+  - { id: stm32l011k4, name: STM32L011K4 (Nucleo-L011K4),       family: L0, dev_id: 0x457, flash_kb: 16 }
+  - { id: stm32l031k6, name: STM32L031K6 (Nucleo-L031K6),       family: L0, dev_id: 0x425, flash_kb: 32 }
+  - { id: stm32l053r8, name: STM32L053R8 (Nucleo-L053R8),       family: L0, dev_id: 0x417, flash_kb: 64 }
+  - { id: stm32l073rz, name: STM32L073RZ (Nucleo-L073RZ),       family: L0, dev_id: 0x447, flash_kb: 192 }
+  # L1
+  - { id: stm32l152re, name: STM32L152RE (Nucleo-L152RE),       family: L1, dev_id: 0x437, flash_kb: 512 }
+  # L4 / L4+
+  - { id: stm32l412kb, name: STM32L412KB (Nucleo-L412KB),       family: L4, dev_id: 0x464, flash_kb: 128 }
+  - { id: stm32l432kc, name: STM32L432KC (Nucleo-L432KC),       family: L4, dev_id: 0x435, flash_kb: 256 }
+  - { id: stm32l452re, name: STM32L452RE (Nucleo-L452RE),       family: L4, dev_id: 0x462, flash_kb: 512 }
+  - { id: stm32l496zg, name: STM32L496ZG (Nucleo-L496ZG),       family: L4, dev_id: 0x461, flash_kb: 1024 }
+  - { id: stm32l4r5zi, name: STM32L4R5ZI (Nucleo-L4R5ZI),       family: L4+, dev_id: 0x470, flash_kb: 2048 }
+  # L5 / U0 / U5
+  - { id: stm32l552ze, name: STM32L552ZE (Nucleo-L552ZE-Q),     family: L5, dev_id: 0x472, flash_kb: 512 }
+  - { id: stm32u031r8, name: STM32U031R8 (Nucleo-U031R8),       family: U0, dev_id: 0x459, flash_kb: 64 }
+  - { id: stm32u083rc, name: STM32U083RC (Nucleo-U083RC),       family: U0, dev_id: 0x489, flash_kb: 256 }
+  - { id: stm32u545re, name: STM32U545RE (Nucleo-U545RE-Q),     family: U5, dev_id: 0x455, flash_kb: 512 }
+  - { id: stm32u575zi, name: STM32U575ZI (Nucleo-U575ZI-Q),     family: U5, dev_id: 0x482, flash_kb: 2048 }
+  - { id: stm32u585ai, name: STM32U585AI (B-U585I-IOT02A),      family: U5, dev_id: 0x482, flash_kb: 2048 }
+  # WB / WL (inalámbricos)
+  - { id: stm32wb55cg, name: STM32WB55CG,                       family: WB, dev_id: 0x495, flash_kb: 1024 }
+  - { id: stm32wb55rg, name: STM32WB55RG (Nucleo-WB55RG),       family: WB, dev_id: 0x495, flash_kb: 1024 }
+  - { id: stm32wl55jc, name: STM32WL55JC (Nucleo-WL55JC),       family: WL, dev_id: 0x497, flash_kb: 256 }
+  - { id: stm32wle5jc, name: STM32WLE5JC (LoRa-E5),             family: WL, dev_id: 0x497, flash_kb: 256 }

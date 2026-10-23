@@ -292,9 +292,11 @@ def main(argv):
             continue
         if "read_memory" in cmd:
             # Verificación del ID del chip (DBGMCU_IDCODE).
-            connected = int(os.environ.get("BENCH_MOCK_STM32_ID", "0") or "0", 0) or IDS.get(family, 0x000)
             expected = re.search(r"!= (0x[0-9A-Fa-f]+)", cmd) or re.search(r"\$_id (0x[0-9A-Fa-f]+)\]", cmd)
-            expected_id = int(expected.group(1), 16) if expected else connected
+            expected_id = int(expected.group(1), 16) if expected else 0
+            # Familias sin ID simulado propio: el chip conectado es el que se espera.
+            connected = (int(os.environ.get("BENCH_MOCK_STM32_ID", "0") or "0", 0) or IDS.get(family)
+                         or expected_id)
             if "shutdown error" in cmd:
                 if connected != expected_id:
                     out(f"CHIP EQUIVOCADO: se esperaba el ID 0x{expected_id:03X} y el chip conectado tiene "

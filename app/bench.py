@@ -17,6 +17,7 @@ import asyncio
 import dataclasses
 import ipaddress
 import os
+import re
 import sys
 import tempfile
 import time
@@ -246,7 +247,49 @@ class Bench:
             job, fn = self._prepare_avrdude(chip, req, firmware)
         if compat is not None:
             job.warnings.extend(compat.warnings)
+        if method == "swd":
+            fn = self._explain_wrong_chip(chip, fn)
         return self.runner.start(job, fn)
+
+    # ---------------------------------------------------- qué STM32 está conectado
+    def chips_with_id(self, chip: Chip, dev_id: int) -> List[Chip]:
+        """Los STM32 del catálogo con ese ID (leído en la misma dirección que el chip elegido)."""
+        if chip.swd is None or chip.swd.idcode is None:
+            return []
+        address = chip.swd.idcode.address
+        return [c for c in self.chips if c.swd is not None and c.swd.idcode is not None
+                and c.swd.idcode.address == address and c.swd.idcode.value == dev_id]
+
+    def connected_chip_hint(self, chip: Chip, dev_id: int) -> str:
+        same = self.chips_with_id(chip, dev_id)
+        if not same:
+            return (f"El ID 0x{dev_id:03X} no está en el catálogo: si es de otra familia, elegí un chip de esa "
+                    "familia y tocá Identificar; si no, agregalo con una línea en chips.yaml (ver README).")
+        names = ", ".join(c.name for c in same[:4]) + ("…" if len(same) > 4 else "")
+        return f"El chip conectado coincide con: {names}. Elegilo en Placa / chip."
+
+    def _explain_wrong_chip(self, chip: Chip, fn):
+        """Si OpenOCD frenó por "CHIP EQUIVOCADO", el error dice qué chip está conectado."""
+        async def wrapped(ctx: JobContext) -> str:
+            try:
+                return await fn(ctx)
+            except JobFailed as exc:
+                m = re.search(r"chip conectado tiene (0x[0-9A-Fa-f]+)", str(exc))
+                if not m:
+                    raise
+                raise JobFailed(f"{exc}. {self.connected_chip_hint(chip, int(m.group(1), 16))}") from exc
+        return wrapped
+
+    def _identified(self, chip: Chip, output: str) -> Optional[str]:
+        """Mensaje de Identificar: si el chip conectado es el elegido, o cuál es."""
+        m = re.search(r"ID del chip conectado: (0x[0-9A-Fa-f]+) \(esperado para esta placa: (0x[0-9A-Fa-f]+)\)",
+                      output)
+        if not m:
+            return None
+        found, expected = int(m.group(1), 16), int(m.group(2), 16)
+        if found == expected:
+            return f"Chip identificado: coincide con {chip.name} (ID 0x{found:03X})"
+        return f"Es otro chip (ID 0x{found:03X}, no 0x{expected:03X}). {self.connected_chip_hint(chip, found)}"
 
     # ------------------------------------------------------- vínculo archivo/placa
     def chip_name(self, chip_id: Optional[str]) -> str:
@@ -374,7 +417,9 @@ class Bench:
 
         async def fn(ctx: JobContext) -> str:
             ctx.track(tracker_for("openocd", action))
-            await ctx.run(argv, source="openocd", timeout_s=timeout)
+            result = await ctx.run(argv, source="openocd", timeout_s=timeout)
+            if action == base.INFO:
+                return self._identified(chip, result.output) or messages[action]
             return messages[action]
 
         return job, fn

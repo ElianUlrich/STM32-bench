@@ -408,9 +408,38 @@ chips:
         # address: 0x08000000                 # por defecto flash.base
 ```
 
-Incluye STM32H503CB (`target/stm32h5x.cfg`), STM32H723VG (`target/stm32h7x.cfg`) y ejemplos F1, F4,
-L4, G0 y G4. Al arrancar, la app **verifica que los `.cfg` existan** en el OpenOCD instalado y avisa
-en la interfaz si falta alguno.
+Al arrancar, la app **verifica que los `.cfg` existan** en el OpenOCD instalado y avisa en la interfaz
+si falta alguno.
+
+#### STM32: más de 80 chips de 20 familias, una línea cada uno
+
+Además de esas entradas completas, `chips.yaml` trae un **catálogo de STM32 por familia**: C0, F0, F1,
+F2, F3, F4, F7, G0, G4, H5, H7, L0, L1, L4, L4+, L5, U0, U5, WB y WL. Están los chips de las placas
+más comunes (Nucleo, Discovery, Blue Pill, Black Pill, WeAct, LoRa-E5...). En el selector de placa
+aparecen agrupados por familia. Lo común de cada familia va una sola vez:
+
+```yaml
+stm32_families:
+  F4: { core: Cortex-M4, target_cfg: target/stm32f4x.cfg, idcode_address: 0xE0042000,
+        uid: 0x1FFF7A10, interface: stlink-dap, adapter_speed_khz: 2000, dfu: true }
+
+stm32:
+  - { id: stm32f401re, name: STM32F401RE (Nucleo-F401RE), family: F4, dev_id: 0x433, flash_kb: 512 }
+```
+
+**Agregar un STM32 que no está = una línea**: su familia, el `dev_id` (el ID del chip,
+`DBGMCU_IDCODE & 0xFFF`, en el manual de referencia o con *Identificar*) y el tamaño de la flash.
+La línea puede pisar lo de la familia (`dfu`, `interface`, `adapter_speed_khz`, `uid`,
+`flash_banks`, `tcl_vars`). Por ejemplo, los H7 de 2 MB llevan `flash_banks: [0, 1]` y
+`DUAL_BANK: 1`.
+
+**Si el chip conectado no es el elegido**, antes de tocar la flash el banco lee su ID, frena, y dice
+cuál es: "El chip conectado coincide con: STM32F401CE, STM32F401RE. Elegilo en Placa / chip".
+*Identificar* hace lo mismo sin frenar nada. Si el ID no está en el catálogo, avisa cómo agregarlo.
+
+Las familias nuevas usan `stlink-dap`, la interfaz que usa STM32CubeIDE. Sirve con ST-Link V2-1 y V3,
+y con V2 (también clones) con firmware J24 o más nuevo, que se actualiza con STM32CubeProgrammer.
+Con un V2 viejo se elige `stlink` en *Opciones avanzadas*.
 
 Nota H5: la CPU del H5 está en el AP 1 del DAP, así que **no funciona con la interfaz HLA**
 (`stlink.cfg`); hace falta `stlink-dap` (ST-Link V2 con firmware ≥ J24, V2-1 o V3).
@@ -1135,6 +1164,12 @@ Verificalo en la BeagleBoard:
 29. **Binarios precompilados**: el workflow `binarios.yml` todavía no corrió (se lanza con la
     etiqueta `binarios-v1`). Hay que confirmar que GDB compile bajo QEMU dentro del límite de 6 h y que
     `binarios.sh` encuentre todas las bibliotecas en la xM.
+
+30. **Catálogo de STM32**: los datos (ID del chip, dirección del ID y del número de serie, USB DFU)
+    salen de los manuales de ST; se verificó que todos los `.cfg` existan en el OpenOCD de ST y que
+    carguen con `stlink-dap`. Con hardware se probaron sólo el H503 (y el H723 pendiente). Con
+    `stlink` (HLA) el OpenOCD de ST 0.12 termina con "Infinite eval recursion" cuando no hay ningún
+    ST-Link conectado: falta ver si con un ST-Link V2 viejo conectado funciona.
 
 ## Licencia
 

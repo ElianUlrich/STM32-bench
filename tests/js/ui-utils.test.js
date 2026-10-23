@@ -141,3 +141,19 @@ test("samplesCsv: exportar lo graficado", () => {
   const csv = UI.samplesCsv(["seno", "sensor.adc"], [[0, 0.5, 2048], [0.02, -0.25, 2050]]);
   assert.equal(csv, "t_s,seno,sensor.adc\n0,0.5,2048\n0.02,-0.25,2050\n");
 });
+
+test("chipGroups: los STM32 por familia y en orden; el resto como vino", () => {
+  const chips = [
+    { id: "h503", name: "STM32H503CB", group: "STM32", family: "H5 (Cortex-M33)" },
+    { id: "f411", name: "STM32F411CE", group: "STM32", family: "F4 (Cortex-M4)" },
+    { id: "esp", name: "ESP32", group: "Espressif (ESP)", family: "ESP32" },
+    { id: "f103", name: "STM32F103C8", group: "STM32", family: "F1 (Cortex-M3)" },
+    { id: "f401", name: "STM32F401RE", group: "STM32", family: "F4 (Cortex-M4)" },
+    { id: "l4p", name: "STM32L4R5ZI", group: "STM32", family: "L4+ (Cortex-M4)" },
+    { id: "uno", name: "Arduino Uno", group: "Arduino / AVR", family: "AVR" },
+  ];
+  const groups = UI.chipGroups(chips);
+  assert.deepEqual(groups.map(([label]) => label),
+    ["STM32 F1", "STM32 F4", "STM32 H5", "STM32 L4+", "Espressif (ESP)", "Arduino / AVR"]);
+  assert.deepEqual(groups[1][1].map((c) => c.id), ["f401", "f411"]);   // por nombre dentro de la familia
+});

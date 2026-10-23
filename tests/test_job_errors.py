@@ -57,3 +57,10 @@ def test_failure_hints():
     assert "ST-Link" in failure_hint("open failed")
     assert "ST-Link" in failure_hint("unable to find a matching ST-Link")
     assert failure_hint("Verify Failed") is None
+
+
+def test_failure_reason_keeps_the_wrong_chip_message():
+    out = ("Info : [stm32f4x.cpu] Cortex-M4 r0p1 processor detected\n"
+           "CHIP EQUIVOCADO: se esperaba el ID 0x431 y el chip conectado tiene 0x433. No se toca la flash.\n"
+           "shutdown command invoked\n")
+    assert failure_reason(out).startswith("CHIP EQUIVOCADO: se esperaba el ID 0x431")

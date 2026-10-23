@@ -220,15 +220,10 @@ function methodLabel(chip, method) {
   return method;
 }
 
-// <select> de placas agrupadas por familia (STM32, Espressif, Arduino).
+// <select> de placas agrupadas: STM32 por familia (F1, F4, H7...), Espressif y Arduino.
 function chipOptions(includeEmpty, short) {
-  const groups = new Map();
-  for (const c of state.config.chips) {
-    if (!groups.has(c.group)) groups.set(c.group, []);
-    groups.get(c.group).push(c);
-  }
   const nodes = includeEmpty ? [el("option", { value: "" }, includeEmpty)] : [];
-  for (const [group, chips] of groups) {
+  for (const [group, chips] of UI.chipGroups(state.config.chips)) {
     nodes.push(el("optgroup", { label: group }, ...chips.map((c) =>
       el("option", { value: c.id, title: short ? c.name : null }, short ? state.chipLabels[c.id] : c.name))));
   }

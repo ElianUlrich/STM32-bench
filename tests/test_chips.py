@@ -130,3 +130,73 @@ def test_bench_config_validation():
             "boot0": {"chip": "../gpiochip0", "line": 1}, "nrst": {"chip": "gpiochip0", "line": 2}}}))
     with pytest.raises(ConfigError):
         parse_bench_config({"interfaces": {"x": {"cfg": "../../evil.cfg"}}})
+
+
+# ------------------------------------------------- STM32: una línea por chip
+
+FAMILIES = {"F4": {"core": "Cortex-M4", "target_cfg": "target/stm32f4x.cfg", "idcode_address": 0xE0042000,
+                   "uid": 0x1FFF7A10, "interface": "stlink", "adapter_speed_khz": 2000, "dfu": True}}
+
+
+def test_stm32_in_one_line_with_its_family():
+    data = minimal()
+    data["stm32_families"] = FAMILIES
+    data["stm32"] = [
+        {"id": "stm32f401re", "name": "STM32F401RE (Nucleo-F401RE)", "family": "F4", "dev_id": 0x433,
+         "flash_kb": 512},
+        {"id": "stm32f410rb", "name": "STM32F410RB", "family": "F4", "dev_id": 0x458, "flash_kb": 128,
+         "dfu": False, "adapter_speed_khz": 1000},
+    ]
+    chips = {c.id: c for c in parse_chips(data, INTERFACES)}
+    c = chips["stm32f401re"]
+    assert c.family == "F4 (Cortex-M4)" and c.group == "STM32" and c.default_method == "swd"
+    assert c.flash_base == 0x08000000 and c.flash_size == 512 * 1024
+    assert c.swd.target_cfg == "target/stm32f4x.cfg" and c.swd.interface == "stlink"
+    assert c.swd.adapter_speed_khz == 2000 and c.swd.uid == 0x1FFF7A10
+    assert (c.swd.idcode.address, c.swd.idcode.value) == (0xE0042000, 0x433)
+    assert c.methods == ["swd", "dfu"] and c.dfu.vid_pid == "0483:df11"
+    # Lo de la línea pisa lo de la familia.
+    f410 = chips["stm32f410rb"]
+    assert f410.methods == ["swd"] and f410.swd.adapter_speed_khz == 1000
+
+
+@pytest.mark.parametrize("line, fragment", [
+    ({"id": "x1", "family": "Z9", "dev_id": 0x1, "flash_kb": 64}, "familia"),
+    ({"id": "x1", "family": "F4", "flash_kb": 64}, "dev_id"),
+    ({"id": "x1", "family": "F4", "dev_id": 0x433}, "flash_kb"),
+    ({"id": "chip1", "family": "F4", "dev_id": 0x433, "flash_kb": 64}, "duplicado"),
+])
+def test_stm32_line_errors(line, fragment):
+    data = minimal()
+    data["stm32_families"] = FAMILIES
+    data["stm32"] = [line]
+    with pytest.raises(ConfigError) as exc:
+        parse_chips(data, INTERFACES)
+    assert fragment in str(exc.value)
+
+
+def test_repo_catalog_covers_most_stm32_families():
+    chips = load_chips(REPO_ROOT / "config" / "chips.yaml")
+    stm32 = [c for c in chips if c.swd is not None]
+    families = {c.family.split(" ")[0] for c in stm32}
+    assert {"C0", "F0", "F1", "F2", "F3", "F4", "F7", "G0", "G4", "H5", "H7", "L0", "L1", "L4", "L4+", "L5",
+            "U0", "U5", "WB", "WL"} <= families
+    assert len(stm32) >= 50
+    assert all(c.swd.idcode is not None for c in stm32)       # nunca se graba un chip sin verificar su ID
+    by_id = {c.id: c for c in stm32}
+    # Las entradas probadas en el banco conservan sus ajustes.
+    assert by_id["stm32h503cb"].swd.adapter_speed_khz == 1000
+    assert ("AP_NUM", "0") in by_id["stm32h723vg"].swd.tcl_vars
+
+
+def test_catalog_cfg_files_exist_in_the_st_openocd():
+    """Todos los target_cfg del catálogo existen en los scripts del OpenOCD de ST (si está CubeIDE)."""
+    from pathlib import Path
+    from app import tools
+    ocd = tools.detect().get("openocd")
+    if not ocd or not ocd.scripts_dir:
+        pytest.skip("no hay OpenOCD de ST en esta PC")
+    bench = load_bench_config(REPO_ROOT / "config" / "bench.yaml")
+    chips = load_chips(REPO_ROOT / "config" / "chips.yaml", bench.interfaces)
+    check = check_cfg_files(chips, bench.interfaces, Path(ocd.scripts_dir))
+    assert check.missing == []

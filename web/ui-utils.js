@@ -114,6 +114,32 @@
     return { tone: look[0], title: report.summary.text, icon: look[1] };
   }
 
+  // --------------------------------------------------------- selector de placas
+
+  const STM32_ORDER = ["C0", "F0", "F1", "F2", "F3", "F4", "F7", "G0", "G4", "H5", "H7", "L0", "L1", "L4", "L4+",
+    "L5", "U0", "U5", "WB", "WL"];
+
+  // Grupos del selector: los STM32 separados por familia (en orden) y ordenados por nombre;
+  // el resto de los grupos (Espressif, Arduino...) como vienen de chips.yaml.
+  function chipGroups(chips) {
+    const stm32 = new Map(), others = new Map();
+    for (const c of chips) {
+      if (c.group === "STM32") {
+        const fam = (c.family || "").split(" ")[0] || "otros";
+        if (!stm32.has(fam)) stm32.set(fam, []);
+        stm32.get(fam).push(c);
+      } else {
+        if (!others.has(c.group)) others.set(c.group, []);
+        others.get(c.group).push(c);
+      }
+    }
+    const rank = (f) => (STM32_ORDER.indexOf(f) < 0 ? STM32_ORDER.length : STM32_ORDER.indexOf(f));
+    const byName = (a, b) => a.name.localeCompare(b.name, "es", { numeric: true });
+    const out = [...stm32.keys()].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b))
+      .map((f) => [`STM32 ${f}`, stm32.get(f).slice().sort(byName)]);
+    return out.concat([...others.entries()]);
+  }
+
   // ---------------------------------------------------------------- gráficos
 
   // Marcas "redondas" (1, 2 o 5 por potencia de 10) para un eje de min a max: unas `count`.
@@ -170,7 +196,7 @@
   }
 
   const api = { fmtAgo, shortChipName, chipLabels, fmtElapsed, stageLabel, progressText, stepStates, filterProjects,
-    fmtBytes, usedText, readSummary, niceTicks, parseSerialValues, fmtValue, samplesCsv };
+    fmtBytes, usedText, readSummary, niceTicks, parseSerialValues, fmtValue, samplesCsv, chipGroups };
   if (typeof module === "object" && module.exports) module.exports = api;
   else root.UI = api;
 })(typeof globalThis !== "undefined" ? globalThis : this);

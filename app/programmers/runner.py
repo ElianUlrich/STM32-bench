@@ -24,7 +24,7 @@ from ..progress import Tracker
 # Líneas que explican una falla, en la salida de OpenOCD, esptool, dfu-util o avrdude.
 _FAILURE_LINE = re.compile(
     r"\b(error|fatal|failed|fail|mismatch|unable|cannot|can't|denied|not responding|not in sync|timed out|timeout)\b"
-    r"|no dfu capable", re.IGNORECASE)
+    r"|no dfu capable|chip equivocado", re.IGNORECASE)
 _DECORATION = re.compile(r"^\*+\s*|\s*\*+$")
 _ERROR_PREFIX = re.compile(r"^error\s*:\s*", re.IGNORECASE)
 

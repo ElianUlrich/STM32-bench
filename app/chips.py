@@ -306,10 +306,66 @@ def _parse_avrdude(raw: Any, where: str) -> AvrdudeParams:
     )
 
 
+STM32_FLASH_BASE = 0x08000000
+STM32_DFU = {"vid_pid": "0483:df11", "alt": 0}
+
+
+def _expand_stm32(data: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Las líneas de "stm32:" (familia + ID + flash) como entradas completas de "chips:".
+
+    Lo común de cada familia (target_cfg, dónde está el ID, uid, interfaz, velocidad,
+    si el bootloader tiene USB DFU...) está en "stm32_families:"; la línea puede pisarlo."""
+    families = data.get("stm32_families") or {}
+    lines = data.get("stm32") or []
+    if not isinstance(families, dict) or not isinstance(lines, list):
+        raise ConfigError("chips.yaml: 'stm32_families' es un objeto y 'stm32' una lista")
+    out = []
+    for index, line in enumerate(lines):
+        line = _obj(line, f"stm32[{index}]")
+        where = f"stm32[{index}] ({line.get('id', 'sin id')})"
+        fam_name = str(line.get("family", ""))
+        fam = families.get(fam_name)
+        if not isinstance(fam, dict):
+            raise ConfigError(f"{where}: la familia '{fam_name}' no está en stm32_families")
+        for key in ("target_cfg", "idcode_address"):
+            if key not in fam:
+                raise ConfigError(f"stm32_families.{fam_name}: falta '{key}'")
+        if "dev_id" not in line:
+            raise ConfigError(f"{where}: falta dev_id (el ID del chip, DBGMCU_IDCODE & 0xFFF)")
+        if "flash_kb" not in line:
+            raise ConfigError(f"{where}: falta flash_kb")
+
+        def pick(key: str, default: Any = None) -> Any:
+            return line[key] if key in line else fam.get(key, default)
+
+        swd: Dict[str, Any] = {
+            "target_cfg": fam["target_cfg"],
+            "adapter_speed_khz": pick("adapter_speed_khz", 4000),
+            "flash_banks": pick("flash_banks", [0]),
+            "idcode": {"address": fam["idcode_address"], "value": line["dev_id"]},
+        }
+        for key in ("interface", "tcl_vars", "uid"):
+            if pick(key) is not None:
+                swd[key] = pick(key)
+        methods: Dict[str, Any] = {"swd": swd}
+        if pick("dfu", False):
+            methods["dfu"] = dict(STM32_DFU)
+        flash: Dict[str, Any] = {"base": STM32_FLASH_BASE, "size_kb": line["flash_kb"]}
+        if pick("sector_kb") is not None:
+            flash["sector_kb"] = pick("sector_kb")
+        core = fam.get("core")
+        out.append({"id": line.get("id"), "name": line.get("name", line.get("id")),
+                    "family": f"{fam_name} ({core})" if core else fam_name, "group": line.get("group", "STM32"),
+                    "flash": flash, "default_method": "swd", "methods": methods})
+    return out
+
+
 def parse_chips(data: Any, interfaces: Optional[Mapping[str, Any]] = None) -> List[Chip]:
     """Valida el contenido de chips.yaml. `interfaces` permite verificar referencias."""
     if isinstance(data, dict):
         entries = data.get("chips")
+        if isinstance(entries, list):
+            entries = entries + _expand_stm32(data)
     else:
         entries = data
     if not isinstance(entries, list) or not entries:
